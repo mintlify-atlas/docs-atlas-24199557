@@ -1,0 +1,91 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Stripe UI Kit",
+  "projectDescription": "Pre-built React components for displaying Stripe customer information in Next.js apps",
+  "theme": "palm",
+  "primaryColor": "#635BFF",
+  "lightColor": "#7A73FF",
+  "darkColor": "#0A2540",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/authentication",
+              "concepts/api-routes",
+              "concepts/customization"
+            ]
+          },
+          {
+            "group": "Components",
+            "pages": [
+              "components/customer-card",
+              "components/invoices",
+              "components/payments",
+              "components/subscriptions"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/styling",
+              "guides/auth-providers",
+              "guides/error-handling"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Server Functions",
+            "pages": [
+              "api/handlers",
+              "api/update-customer"
+            ]
+          },
+          {
+            "group": "Type Schemas",
+            "pages": [
+              "api/customer-schema",
+              "api/invoice-schema",
+              "api/charge-schema",
+              "api/subscription-schema"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Pre-built React components for Stripe data",
+    "Server-side authentication and security",
+    "TanStack Query integration",
+    "Fully customizable with ShadCN UI",
+    "TypeScript support with Zod validation"
+  ],
+  "publicApiSurface": [
+    "CustomerCard",
+    "CustomerInvoices",
+    "CustomerPayments",
+    "CustomerSubscriptions",
+    "handlers",
+    "updateCustomer",
+    "customerSchema",
+    "invoiceSchema",
+    "chargeSchema",
+    "subscriptionSchema"
+  ]
+}
