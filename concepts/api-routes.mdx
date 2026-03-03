@@ -1,0 +1,360 @@
+---
+title: 'API Routes'
+description: 'Understand the API route structure and handler pattern in Stripe UI Kit'
+---
+
+## Overview
+
+The Stripe UI Kit uses a centralized API route pattern that dynamically routes requests to handler functions based on the route name and HTTP method.
+
+## Route Structure
+
+All API requests flow through a single Next.js dynamic route:
+
+```
+/api/stripe-ui-kit/[route]
+```
+
+For example:
+- `/api/stripe-ui-kit/customer` - Get customer information
+- `/api/stripe-ui-kit/invoices` - Get customer invoices
+- `/api/stripe-ui-kit/subscriptions` - Get customer subscriptions
+- `/api/stripe-ui-kit/customer-update` - Update customer information
+
+## The Handlers Object
+
+All available routes are defined in the `handlers` object in `/src/lib/stripe-ui-kit.ts`:
+
+```typescript
+export const handlers = {
+    "customer": {
+        GET: {
+            schema: blankSchema,
+            fn: getCustomerInfo
+        },
+    },
+    "invoices": {
+        GET: {
+            schema: blankSchema,
+            fn: getCustomerInvoices
+        },
+    },
+    "charges": {
+        GET: {
+            schema: blankSchema,
+            fn: getCustomerPayments
+        },
+    },
+    "subscriptions": {
+        GET: {
+            schema: blankSchema,
+            fn: getCustomerSubscriptions
+        },
+    },
+    "customer-update": {
+        POST: {
+            schema: customerSchema,
+            fn: updateCustomer
+        },
+    },
+};
+```
+
+Each handler consists of:
+- **Route name** - The URL path segment (e.g., `"customer"`, `"invoices"`)
+- **HTTP method** - `GET` or `POST`
+- **Schema** - A Zod schema for validating the request body/params
+- **Function** - The handler function that processes the request
+
+## Request/Response Flow
+
+Here's the complete flow for an API request:
+
+### 1. Route Entry Point
+
+Next.js calls the appropriate HTTP method handler:
+
+```typescript
+export async function GET(req: NextRequest, context: { params: Promise<{ route: string }> }) {
+  const { route } = await context.params;
+  return routeHandler("GET", req, route);
+}
+
+export async function POST(req: NextRequest, context: { params: Promise<{ route: string }> }) {
+  const { route } = await context.params;
+  return routeHandler("POST", req, route);
+}
+```
+
+### 2. Route Validation
+
+The `routeHandler` validates that the route and method exist:
+
+```typescript
+const handlerSet = handlers[route as keyof typeof handlers];
+
+if (!handlerSet || !handlerSet[method]) {
+  return NextResponse.json({ error: "Route or method not supported" }, { status: 404 });
+}
+```
+
+### 3. Authentication
+
+The handler authenticates the request and retrieves the customer ID:
+
+```typescript
+const customerId = await auth(req);
+if (!customerId) {
+  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+}
+```
+
+See [Authentication](/concepts/authentication) for details.
+
+### 4. Input Parsing
+
+The handler extracts data from either the request body (POST) or query parameters (GET):
+
+```typescript
+const raw =
+  method === "POST"
+    ? await req.json()
+    : Object.fromEntries(req.nextUrl.searchParams);
+```
+
+### 5. Schema Validation
+
+The input is validated against the handler's Zod schema:
+
+```typescript
+const { schema, fn } = handlerSet[method];
+
+const isUndefinedSchema =
+  schema instanceof z.ZodUndefined ||
+  (schema as any)._def?.typeName === "ZodUndefined";
+
+const validated = isUndefinedSchema ? undefined : schema.parse(raw);
+```
+
+<Info>
+Routes that don't accept input use `blankSchema` (which is `z.undefined()`), so validation passes `undefined` to the handler.
+</Info>
+
+### 6. Handler Execution
+
+The validated data and customer ID are passed to the handler function:
+
+```typescript
+const result = await fn(validated, customerId);
+return NextResponse.json(result);
+```
+
+### 7. Error Handling
+
+Errors are caught and returned with appropriate status codes:
+
+```typescript
+catch (err) {
+  if (err instanceof z.ZodError) {
+    return NextResponse.json({ error: "Invalid body", details: err.errors }, { status: 400 });
+  }
+  console.error("Stripe route error:", err);
+  return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+}
+```
+
+## Handler Function Signature
+
+All handler functions follow this signature:
+
+```typescript
+async function handlerName(
+  body: z.infer<typeof schemaName>,
+  customerId: string
+) {
+  // Implementation
+  return result;
+}
+```
+
+### Example: GET Handler
+
+```typescript
+async function getCustomerInfo(body: z.infer<typeof blankSchema>, customerId: string) {
+  try {
+    const customer = await stripe.customers.retrieve(customerId);
+
+    if (!customer || customer.deleted) {
+      throw new Error(`Customer ${customerId} not found or deleted`);
+    }
+
+    return customer;
+  } catch (error) {
+    console.error("Error retrieving customer:", error);
+    throw new Error("Failed to retrieve customer information");
+  }
+}
+```
+
+### Example: POST Handler
+
+```typescript
+export async function updateCustomer(
+  body: z.infer<typeof customerSchema>,
+  customerId: string
+) {
+  try {
+    const clean = (obj: Record<string, any>) =>
+      Object.fromEntries(
+        Object.entries(obj).filter(
+          ([, value]) => value !== null && value !== undefined && value !== ""
+        )
+      );
+
+    const updated = await stripe.customers.update(customerId, {
+      name: body.name || undefined,
+      email: body.email || undefined,
+      address: clean(body.address),
+    });
+
+    return updated;
+  } catch (error) {
+    console.error("Stripe update failed:", error);
+    throw new Error("Failed to update Stripe customer");
+  }
+}
+```
+
+## Adding Custom Routes
+
+To add a new route, follow these steps:
+
+### 1. Define the Schema
+
+Create a Zod schema in `/src/lib/stripe-ui-types.ts`:
+
+```typescript
+export const paymentMethodSchema = z.object({
+  paymentMethodId: z.string(),
+});
+```
+
+### 2. Create the Handler Function
+
+Add the handler function in `/src/lib/stripe-ui-kit.ts`:
+
+```typescript
+async function detachPaymentMethod(
+  body: z.infer<typeof paymentMethodSchema>,
+  customerId: string
+) {
+  try {
+    const paymentMethod = await stripe.paymentMethods.detach(
+      body.paymentMethodId
+    );
+    return paymentMethod;
+  } catch (error) {
+    console.error("Error detaching payment method:", error);
+    throw new Error("Failed to detach payment method");
+  }
+}
+```
+
+### 3. Register in Handlers Object
+
+Add the route to the `handlers` object:
+
+```typescript
+export const handlers = {
+  // ... existing handlers
+  "payment-method-detach": {
+    POST: {
+      schema: paymentMethodSchema,
+      fn: detachPaymentMethod
+    },
+  },
+};
+```
+
+### 4. Call from Client
+
+Use the route from your client code:
+
+```typescript
+const response = await fetch("/api/stripe-ui-kit/payment-method-detach", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ paymentMethodId: "pm_xxx" }),
+});
+
+const result = await response.json();
+```
+
+<Note>
+The route automatically handles authentication, validation, and error handling. You only need to implement the business logic.
+</Note>
+
+## Available Routes
+
+The default routes provided by Stripe UI Kit:
+
+| Route | Method | Schema | Description |
+|-------|--------|--------|-------------|
+| `customer` | GET | `blankSchema` | Retrieve customer information |
+| `invoices` | GET | `blankSchema` | List customer invoices |
+| `charges` | GET | `blankSchema` | List customer charges |
+| `subscriptions` | GET | `blankSchema` | List customer subscriptions |
+| `customer-update` | POST | `customerSchema` | Update customer details |
+
+<Info>
+All routes automatically scope operations to the authenticated customer ID, ensuring users can only access their own data.
+</Info>
+
+## Response Format
+
+Successful responses return the handler's result as JSON:
+
+```json
+{
+  "id": "cus_xxx",
+  "email": "customer@example.com",
+  "name": "John Doe"
+  // ... other Stripe customer fields
+}
+```
+
+Error responses follow these formats:
+
+**401 Unauthorized**
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+**404 Not Found**
+```json
+{
+  "error": "Route or method not supported"
+}
+```
+
+**400 Bad Request (Validation Error)**
+```json
+{
+  "error": "Invalid body",
+  "details": [
+    {
+      "path": ["email"],
+      "message": "Invalid email"
+    }
+  ]
+}
+```
+
+**500 Internal Server Error**
+```json
+{
+  "error": "Internal server error"
+}
+```

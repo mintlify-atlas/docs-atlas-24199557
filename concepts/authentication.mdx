@@ -1,0 +1,253 @@
+---
+title: 'Authentication'
+description: 'Learn how to implement secure authentication with the Stripe UI Kit'
+---
+
+## Overview
+
+The Stripe UI Kit uses a server-side authentication pattern to ensure secure access to customer data. The `auth` function in your API route determines which Stripe customer ID is associated with the current request.
+
+## The Auth Function
+
+The authentication flow is implemented in `/src/app/api/stripe-ui-kit/[route]/route.ts`:
+
+```typescript
+async function auth(req: NextRequest): Promise<string | null> {
+  // Must return the stripe customerId of the logged in user
+  
+  const authHeader = req.headers.get("authorization");
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return null;
+  }
+
+  const token = authHeader.split(" ")[1];
+  
+  // Verify token and return customer ID
+  // ...
+  
+  return "cus_xxx"; // Return the customer ID
+}
+```
+
+<Warning>
+The `auth` function **must** return the Stripe customer ID (`cus_xxx`) for the authenticated user. Returning `null` will result in a 401 Unauthorized response.
+</Warning>
+
+## How Authentication Works
+
+Every API request flows through the `routeHandler` function:
+
+```typescript
+async function routeHandler(method: "GET" | "POST", req: NextRequest, route: string) {
+  
+  const handlerSet = handlers[route as keyof typeof handlers];
+
+  if (!handlerSet || !handlerSet[method]) {
+    return NextResponse.json({ error: "Route or method not supported" }, { status: 404 });
+  }
+
+  const customerId = await auth(req);
+  if (!customerId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { schema, fn } = handlerSet[method];
+  const result = await fn(validated, customerId);
+  return NextResponse.json(result);
+}
+```
+
+The flow is:
+
+1. **Route validation** - Check if the route and HTTP method exist in handlers
+2. **Authentication** - Call `auth(req)` to get the customer ID
+3. **Authorization check** - Return 401 if no customer ID is returned
+4. **Request processing** - Pass the customer ID to the handler function
+
+<Info>
+The customer ID is automatically passed as the second parameter to every handler function, ensuring all Stripe operations are scoped to the authenticated user.
+</Info>
+
+## Integration Examples
+
+### Clerk
+
+Integrate with Clerk by retrieving the customer ID from user metadata:
+
+```typescript
+import { auth } from "@clerk/nextjs/server";
+
+async function auth(req: NextRequest): Promise<string | null> {
+  const { userId } = await auth();
+  
+  if (!userId) {
+    return null;
+  }
+
+  const user = await clerkClient.users.getUser(userId);
+  const customerId = user.publicMetadata.stripeCustomerId as string;
+  
+  return customerId || null;
+}
+```
+
+### NextAuth.js
+
+Integrate with NextAuth by reading from the session:
+
+```typescript
+import { getServerSession } from "next-auth/next";
+import { authOptions } from "~/lib/auth";
+
+async function auth(req: NextRequest): Promise<string | null> {
+  const session = await getServerSession(authOptions);
+  
+  if (!session?.user) {
+    return null;
+  }
+
+  // Assuming you store stripeCustomerId in the session
+  return session.user.stripeCustomerId || null;
+}
+```
+
+### JWT Tokens
+
+Integrate with JWT-based authentication:
+
+```typescript
+import { verify } from "jsonwebtoken";
+
+async function auth(req: NextRequest): Promise<string | null> {
+  const authHeader = req.headers.get("authorization");
+
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return null;
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  try {
+    const decoded = verify(token, process.env.JWT_SECRET!) as {
+      userId: string;
+      stripeCustomerId: string;
+    };
+    
+    return decoded.stripeCustomerId;
+  } catch (error) {
+    console.error("JWT verification failed:", error);
+    return null;
+  }
+}
+```
+
+### Session Cookies
+
+Integrate with cookie-based sessions:
+
+```typescript
+import { cookies } from "next/headers";
+
+async function auth(req: NextRequest): Promise<string | null> {
+  const cookieStore = await cookies();
+  const sessionId = cookieStore.get("session_id")?.value;
+
+  if (!sessionId) {
+    return null;
+  }
+
+  // Look up session in database
+  const session = await db.session.findUnique({
+    where: { id: sessionId },
+    include: { user: true }
+  });
+
+  return session?.user?.stripeCustomerId || null;
+}
+```
+
+## Security Best Practices
+
+<Warning>
+**Never expose your Stripe secret key to the client.** All Stripe operations must happen server-side.
+</Warning>
+
+### 1. Server-Side Only
+
+The `stripe-ui-kit.ts` file uses the `"only server"` directive:
+
+```typescript
+"only server"
+
+import Stripe from "stripe";
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+    apiVersion: "2025-10-29.clover",
+});
+```
+
+This ensures the code never runs on the client, protecting your secret key.
+
+### 2. Customer ID Isolation
+
+Every handler function receives the authenticated customer ID:
+
+```typescript
+async function getCustomerInfo(body: z.infer<typeof blankSchema>, customerId: string) {
+  const customer = await stripe.customers.retrieve(customerId);
+  return customer;
+}
+```
+
+Users can **only** access data for their own customer ID, preventing unauthorized access.
+
+### 3. Input Validation
+
+All requests are validated using Zod schemas before processing:
+
+```typescript
+const validated = isUndefinedSchema ? undefined : schema.parse(raw);
+const result = await fn(validated, customerId);
+```
+
+### 4. Error Handling
+
+The route handler catches and sanitizes errors:
+
+```typescript
+try {
+  const result = await fn(validated, customerId);
+  return NextResponse.json(result);
+} catch (err) {
+  if (err instanceof z.ZodError) {
+    return NextResponse.json({ error: "Invalid body", details: err.errors }, { status: 400 });
+  }
+  console.error("Stripe route error:", err);
+  return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+}
+```
+
+<Note>
+Validation errors return detailed error information, while internal errors return a generic message to avoid leaking sensitive information.
+</Note>
+
+## Testing Authentication
+
+During development, you can use a hardcoded customer ID for testing:
+
+```typescript
+async function auth(req: NextRequest): Promise<string | null> {
+  // For development/testing only
+  if (process.env.NODE_ENV === "development") {
+    return "cus_S9KoQJg6Cy8ydG"; // Test customer ID
+  }
+  
+  // Production auth logic
+  // ...
+}
+```
+
+<Warning>
+**Never** leave hardcoded customer IDs in production code. Always implement proper authentication.
+</Warning>

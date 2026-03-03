@@ -1,0 +1,240 @@
+---
+title: CustomerSubscriptions
+description: A table component that displays a customer's active and past Stripe subscriptions with plan details and billing information.
+---
+
+## Overview
+
+The `CustomerSubscriptions` component displays a customer's subscription history from Stripe. It shows subscription details including plan information, pricing, billing intervals, status, and next billing dates.
+
+## Features
+
+- Fetches customer subscriptions from Stripe
+- Displays start date, amount, plan ID, and billing interval
+- Status badges with contextual colors (active, canceled, etc.)
+- Next billing date display
+- Currency formatting
+- Loading and error states
+- Empty state when no subscriptions exist
+
+## Import
+
+```tsx
+import { CustomerSubscriptions } from "~/components/stripe-ui-kit/subscriptions";
+```
+
+## Usage
+
+```tsx
+export default function SubscriptionsPage() {
+  return (
+    <div className="container mx-auto p-6">
+      <CustomerSubscriptions />
+    </div>
+  );
+}
+```
+
+## API Endpoint
+
+### GET `/api/stripe-ui-kit/subscriptions`
+
+Fetches all subscriptions for the current customer. Returns an array of subscription objects validated against `subscriptionSchema`.
+
+**Response Format:**
+
+```typescript
+[
+  {
+    id: string;
+    created: number; // Unix timestamp
+    status: string; // "active", "canceled", "past_due", etc.
+    current_period_end: number | null; // Unix timestamp
+    plan: {
+      id: string;
+      amount: number | null; // Amount in cents
+      currency: string;
+      interval: string; // "month", "year", etc.
+    } | null;
+  }
+]
+```
+
+## Table Columns
+
+The component displays the following columns:
+
+| Column | Description |
+|--------|-------------|
+| **Start Date** | Subscription creation date |
+| **Amount** | Subscription price (right-aligned) |
+| **Plan** | Plan ID with "price_" prefix removed |
+| **Interval** | Billing frequency (month, year, etc.) |
+| **Status** | Badge showing subscription status |
+| **Next Billing** | Next billing date |
+
+## Status Badges
+
+The component uses contextual badge variants:
+
+- **Active subscriptions**: `default` variant (typically blue/primary)
+- **Canceled subscriptions**: `destructive` variant (typically red)
+- **Other statuses**: `secondary` variant (typically gray)
+
+```typescript
+let badgeVariant: "default" | "secondary" | "destructive" = "secondary";
+if (sub.status === "active") badgeVariant = "default";
+else if (sub.status === "canceled") badgeVariant = "destructive";
+```
+
+## Code Example
+
+```tsx
+"use client";
+
+import { CustomerSubscriptions } from "~/components/stripe-ui-kit/subscriptions";
+
+export default function BillingPage() {
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold">Subscriptions</h1>
+      <CustomerSubscriptions />
+    </div>
+  );
+}
+```
+
+## Data Formatting
+
+### Date Formatting
+
+```typescript
+const start = new Date(sub.created * 1000).toLocaleDateString();
+const nextBilling = sub.current_period_end
+  ? new Date(sub.current_period_end * 1000).toLocaleDateString()
+  : "—";
+```
+
+Converts Unix timestamps to locale-specific date strings.
+
+### Currency Formatting
+
+```typescript
+const amount =
+  sub.plan?.amount != null
+    ? (sub.plan.amount / 100).toLocaleString(undefined, {
+        style: "currency",
+        currency: sub.plan.currency.toUpperCase(),
+      })
+    : "—";
+```
+
+Converts cents to dollars/euros and formats with currency symbol.
+
+### Plan ID Formatting
+
+```typescript
+const planLabel = sub.plan?.id
+  ? sub.plan.id.replace("price_", "")
+  : "—";
+```
+
+Removes the "price_" prefix from Stripe plan IDs for cleaner display.
+
+## States
+
+### Loading State
+
+```tsx
+<div>Loading subscriptions...</div>
+```
+
+### Error State
+
+```tsx
+<div>Failed to load subscriptions</div>
+```
+
+### Empty State
+
+```tsx
+<Card>
+  <CardHeader>
+    <CardTitle>No Subscriptions Found</CardTitle>
+  </CardHeader>
+</Card>
+```
+
+## React Query Integration
+
+- **Query Key**: `["subscriptions"]`
+- **Validation**: Uses Zod `subscriptionsSchema` for runtime type safety
+- Automatically refetches on window focus and network reconnection
+
+## Styling Details
+
+- **Plan column**: Uses `font-mono text-xs` for monospace display
+- **Interval column**: Capitalizes interval text
+- **Table rows**: Includes hover effect with `hover:bg-muted/50`
+- **Amount column**: Right-aligned for better readability
+- **Status/Next Billing**: Center-aligned
+
+## Full Component Example
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { Badge } from "~/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
+import { subscriptionSchema } from "~/lib/stripe-ui-types";
+import { z } from "zod";
+
+const subscriptionsSchema = z.array(subscriptionSchema);
+
+export function CustomerSubscriptions() {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["subscriptions"],
+    queryFn: async () => {
+      const res = await fetch("/api/stripe-ui-kit/subscriptions");
+      if (!res.ok) throw new Error("Failed to fetch charges");
+      const json = await res.json();
+      return subscriptionsSchema.parse(json);
+    },
+  });
+
+  if (isLoading) return <div>Loading subscriptions...</div>;
+  if (error) return <div>Failed to load subscriptions</div>;
+  if (!data?.length) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>No Subscriptions Found</CardTitle>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Customer Subscriptions</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          {/* Table content */}
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Common Subscription Statuses
+
+- `active` - Subscription is currently active
+- `canceled` - Subscription has been canceled
+- `past_due` - Payment is past due
+- `trialing` - Subscription is in trial period
+- `incomplete` - Initial payment hasn't succeeded
+- `incomplete_expired` - First invoice wasn't paid within 23 hours
+- `unpaid` - Latest invoice hasn't been paid

@@ -1,0 +1,158 @@
+---
+title: Installation
+description: Install the Stripe UI Kit in your Next.js application
+---
+
+## Install dependencies
+
+First, install the required npm packages:
+
+<CodeGroup>
+
+```bash npm
+npm install @tanstack/react-query stripe zod react-hook-form @hookform/resolvers
+```
+
+```bash yarn
+yarn add @tanstack/react-query stripe zod react-hook-form @hookform/resolvers
+```
+
+```bash pnpm
+pnpm add @tanstack/react-query stripe zod react-hook-form @hookform/resolvers
+```
+
+</CodeGroup>
+
+### ShadCN UI components
+
+The Stripe UI Kit uses ShadCN UI components for styling. You'll need to install these components:
+
+<CodeGroup>
+
+```bash npm
+npx shadcn@latest add card table badge button form input label separator
+```
+
+```bash yarn
+yarn dlx shadcn@latest add card table badge button form input label separator
+```
+
+```bash pnpm
+pnpm dlx shadcn@latest add card table badge button form input label separator
+```
+
+</CodeGroup>
+
+<Note>
+  If you haven't set up ShadCN UI yet, run `npx shadcn@latest init` first.
+</Note>
+
+## Copy source files
+
+Copy the following files from the [source repository](https://github.com/stripe/stripe-ui-kit) to your project:
+
+### Core library files
+
+Copy these files to `src/lib/`:
+
+- `stripe-ui-kit.ts` - Server-side Stripe API handlers
+- `stripe-ui-types.ts` - Zod schemas for type validation
+
+### Component files
+
+Copy all files from `src/components/stripe-ui-kit/` to your project:
+
+- `customer.tsx` - Customer information card
+- `invoices.tsx` - Invoices table
+- `payments.tsx` - Payments table
+- `subscriptions.tsx` - Subscriptions table
+
+### API route
+
+Copy the API route to `src/app/api/stripe-ui-kit/[route]/route.ts`
+
+## File structure
+
+After copying all files, your project structure should look like this:
+
+```
+src/
+├── app/
+│   └── api/
+│       └── stripe-ui-kit/
+│           └── [route]/
+│               └── route.ts        # API handler
+├── components/
+│   ├── stripe-ui-kit/
+│   │   ├── customer.tsx           # Customer card component
+│   │   ├── invoices.tsx           # Invoices table component
+│   │   ├── payments.tsx           # Payments table component
+│   │   └── subscriptions.tsx      # Subscriptions table component
+│   └── ui/
+│       ├── card.tsx               # ShadCN UI components
+│       ├── table.tsx
+│       ├── badge.tsx
+│       ├── button.tsx
+│       ├── form.tsx
+│       ├── input.tsx
+│       ├── label.tsx
+│       └── separator.tsx
+└── lib/
+    ├── stripe-ui-kit.ts           # Stripe API handlers
+    └── stripe-ui-types.ts         # Zod schemas
+```
+
+## Environment variables
+
+Add your Stripe secret key to your `.env.local` file:
+
+```bash
+STRIPE_SECRET_KEY=sk_test_...
+```
+
+<Warning>
+  Never commit your `.env.local` file or expose your Stripe secret key in client-side code.
+</Warning>
+
+## Query client setup
+
+Wrap your app with TanStack Query's `QueryClientProvider`. Create a `src/lib/query-client-provider.tsx` file:
+
+```tsx src/lib/query-client-provider.tsx
+"use client";
+
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useState } from "react";
+
+export function ReactQueryProvider({ children }: { children: React.ReactNode }) {
+  const [queryClient] = useState(() => new QueryClient());
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      {children}
+    </QueryClientProvider>
+  );
+}
+```
+
+Then wrap your root layout:
+
+```tsx src/app/layout.tsx
+import { ReactQueryProvider } from "~/lib/query-client-provider";
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body>
+        <ReactQueryProvider>
+          {children}
+        </ReactQueryProvider>
+      </body>
+    </html>
+  );
+}
+```
+
+## Next steps
+
+Now that you've installed all the dependencies and copied the files, continue to the [quickstart guide](/quickstart) to configure authentication and start using the components.

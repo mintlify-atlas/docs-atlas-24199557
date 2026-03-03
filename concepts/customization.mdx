@@ -1,0 +1,437 @@
+---
+title: 'Customization'
+description: 'Learn how to customize and extend Stripe UI Kit components'
+---
+
+## Overview
+
+The Stripe UI Kit is built on top of [shadcn/ui](https://ui.shadcn.com/), which means all components are fully customizable and owned by you. Unlike traditional component libraries, shadcn/ui components are copied into your project, giving you complete control.
+
+## How shadcn/ui Works
+
+When you use the Stripe UI Kit, the UI components are installed directly into your project:
+
+```bash
+npx shadcn@latest add card button input
+```
+
+These components are now in your `/components/ui/` directory, where you can modify them freely.
+
+<Info>
+shadcn/ui components are not npm packages - they're source code that you own and can customize however you need.
+</Info>
+
+## Styling Options
+
+The Stripe UI Kit uses Tailwind CSS for styling. You have several options for customization:
+
+### 1. Inline Tailwind Classes
+
+The simplest way to customize is by adding Tailwind classes directly:
+
+```tsx
+import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+
+export function CustomerCard() {
+  return (
+    <Card className="border-2 border-blue-500 shadow-lg">
+      <CardHeader className="bg-gradient-to-r from-blue-50 to-purple-50">
+        <CardTitle className="text-2xl font-bold text-blue-900">
+          Customer Information
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-6">
+        {/* Your content */}
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+### 2. CSS Variables and Theme
+
+The shadcn/ui theme is defined using CSS variables in your global CSS file:
+
+```css
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    /* ... other dark mode values */
+  }
+}
+```
+
+Modify these values to change the entire theme:
+
+```css
+:root {
+  --primary: 268 100% 50%;        /* Stripe purple */
+  --primary-foreground: 0 0% 100%; /* White text */
+  --radius: 0.75rem;               /* More rounded corners */
+}
+```
+
+### 3. Tailwind Configuration
+
+Extend your `tailwind.config.ts` to add custom colors, fonts, or utilities:
+
+```typescript
+import type { Config } from "tailwindcss";
+
+const config: Config = {
+  content: ["./src/**/*.{js,ts,jsx,tsx,mdx}"],
+  theme: {
+    extend: {
+      colors: {
+        stripe: {
+          purple: "#635BFF",
+          blue: "#00D4FF",
+          green: "#00D924",
+        },
+      },
+      fontFamily: {
+        sans: ["var(--font-inter)", "sans-serif"],
+      },
+    },
+  },
+  plugins: [],
+};
+
+export default config;
+```
+
+Then use your custom colors:
+
+```tsx
+<Card className="bg-stripe-purple text-white">
+  {/* ... */}
+</Card>
+```
+
+## Extending Components
+
+### Modifying Existing Components
+
+Since components are in your project, you can edit them directly. For example, to always show a loading spinner in buttons:
+
+```tsx
+// components/ui/button.tsx
+import { Loader2 } from "lucide-react";
+
+export interface ButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
+    VariantProps<typeof buttonVariants> {
+  asChild?: boolean;
+  loading?: boolean; // Add loading prop
+}
+
+const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant, size, asChild = false, loading, children, ...props }, ref) => {
+    const Comp = asChild ? Slot : "button";
+    return (
+      <Comp
+        className={cn(buttonVariants({ variant, size, className }))}
+        ref={ref}
+        disabled={loading || props.disabled}
+        {...props}
+      >
+        {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+        {children}
+      </Comp>
+    );
+  }
+);
+```
+
+Now you can use:
+
+```tsx
+<Button loading={isSubmitting}>Save Changes</Button>
+```
+
+### Creating Composite Components
+
+Build higher-level components from UI primitives:
+
+```tsx
+// components/stripe-customer-card.tsx
+import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { Badge } from "~/components/ui/badge";
+import { Skeleton } from "~/components/ui/skeleton";
+
+interface StripeCustomerCardProps {
+  customer?: {
+    name: string | null;
+    email: string | null;
+    currency: string;
+  };
+  loading?: boolean;
+}
+
+export function StripeCustomerCard({ customer, loading }: StripeCustomerCardProps) {
+  if (loading) {
+    return (
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-6 w-48" />
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-3/4" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card className="hover:shadow-lg transition-shadow">
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle>{customer?.name || "No name"}</CardTitle>
+        <Badge variant="secondary">{customer?.currency.toUpperCase()}</Badge>
+      </CardHeader>
+      <CardContent>
+        <p className="text-sm text-muted-foreground">
+          {customer?.email || "No email"}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+### Wrapping Components
+
+Create wrapper components for consistent styling:
+
+```tsx
+// components/stripe-card.tsx
+import { Card, CardProps } from "~/components/ui/card";
+import { cn } from "~/lib/utils";
+
+export function StripeCard({ className, children, ...props }: CardProps) {
+  return (
+    <Card
+      className={cn(
+        "border-stripe-purple/20",
+        "hover:border-stripe-purple/40",
+        "transition-colors",
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </Card>
+  );
+}
+```
+
+Use throughout your app for consistent Stripe branding:
+
+```tsx
+<StripeCard>
+  <CardHeader>
+    <CardTitle>Subscription Details</CardTitle>
+  </CardHeader>
+  <CardContent>{/* ... */}</CardContent>
+</StripeCard>
+```
+
+## Customizing Stripe Components
+
+The Stripe UI Kit provides components for displaying customer data. You can customize these by modifying the source or wrapping them:
+
+### Example: Custom Invoice List
+
+```tsx
+import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { Badge } from "~/components/ui/badge";
+import { Button } from "~/components/ui/button";
+import { Download } from "lucide-react";
+
+interface Invoice {
+  id: string;
+  number: string | null;
+  status: string | null;
+  amount_due: number;
+  currency: string;
+  invoice_pdf: string | null;
+}
+
+export function CustomInvoiceList({ invoices }: { invoices: Invoice[] }) {
+  return (
+    <div className="space-y-4">
+      {invoices.map((invoice) => (
+        <Card key={invoice.id} className="hover:bg-accent/50 transition-colors">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-base">
+                Invoice {invoice.number || invoice.id}
+              </CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                {new Intl.NumberFormat('en-US', {
+                  style: 'currency',
+                  currency: invoice.currency,
+                }).format(invoice.amount_due / 100)}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Badge
+                variant={invoice.status === "paid" ? "default" : "secondary"}
+              >
+                {invoice.status}
+              </Badge>
+              {invoice.invoice_pdf && (
+                <Button size="sm" variant="outline" asChild>
+                  <a href={invoice.invoice_pdf} target="_blank" rel="noopener noreferrer">
+                    <Download className="h-4 w-4" />
+                  </a>
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+        </Card>
+      ))}
+    </div>
+  );
+}
+```
+
+## Animation and Transitions
+
+Add animations using Tailwind utilities or Framer Motion:
+
+### Tailwind Transitions
+
+```tsx
+<Card className="transition-all duration-300 hover:scale-105 hover:shadow-xl">
+  {/* ... */}
+</Card>
+```
+
+### Framer Motion
+
+```tsx
+import { motion } from "framer-motion";
+
+export function AnimatedCard({ children }: { children: React.ReactNode }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+    >
+      <Card>{children}</Card>
+    </motion.div>
+  );
+}
+```
+
+## Dark Mode
+
+shadcn/ui supports dark mode out of the box. Enable it using `next-themes`:
+
+```tsx
+// app/providers.tsx
+import { ThemeProvider } from "next-themes";
+
+export function Providers({ children }: { children: React.ReactNode }) {
+  return (
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+      {children}
+    </ThemeProvider>
+  );
+}
+```
+
+Add a theme toggle:
+
+```tsx
+import { Moon, Sun } from "lucide-react";
+import { useTheme } from "next-themes";
+import { Button } from "~/components/ui/button";
+
+export function ThemeToggle() {
+  const { theme, setTheme } = useTheme();
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+    >
+      <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
+      <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+    </Button>
+  );
+}
+```
+
+## Best Practices
+
+<Note>
+**Keep customizations organized** - Create a `/components/stripe/` directory for Stripe-specific customizations to keep them separate from base UI components.
+</Note>
+
+<Warning>
+**Don't modify shadcn/ui components directly** unless you understand the implications. Prefer wrapping or composing to preserve upgrade paths.
+</Warning>
+
+### Recommended Structure
+
+```
+src/
+  components/
+    ui/              # shadcn/ui base components (card, button, etc.)
+    stripe/          # Stripe-specific components
+      customer-card.tsx
+      invoice-list.tsx
+      subscription-card.tsx
+    theme-toggle.tsx
+  lib/
+    stripe-ui-kit.ts # API handlers
+    utils.ts         # Utility functions
+```
+
+### Component Composition Pattern
+
+```tsx
+// Good: Compose from base components
+export function StripeSection({ children }: { children: React.ReactNode }) {
+  return (
+    <section className="container mx-auto py-8">
+      <Card className="border-stripe-purple/20">
+        {children}
+      </Card>
+    </section>
+  );
+}
+
+// Avoid: Copying entire component files
+// Instead, import and extend
+```
+
+<Info>
+For more customization options, see the [shadcn/ui documentation](https://ui.shadcn.com/docs) and [Tailwind CSS documentation](https://tailwindcss.com/docs).
+</Info>

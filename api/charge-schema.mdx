@@ -1,0 +1,304 @@
+---
+title: 'Charge Schema'
+description: 'Zod schema for validating Stripe charge data with payment details and card information'
+---
+
+## Overview
+
+The `chargeSchema` validates charge (payment) data from Stripe, including amount, currency, status, payment method details, and card information.
+
+## Schema Definition
+
+```typescript
+import { z } from "zod";
+
+export const chargeSchema = z.object({
+    id: z.string(),
+    amount: z.number(),
+    currency: z.string(),
+    status: z.string(),
+    created: z.number(), // Unix timestamp
+    description: z.string().nullable(),
+    receipt_url: z.string().nullable(),
+    payment_method_details: z
+        .object({
+            type: z.string().nullable(),
+            card: z
+                .object({
+                    brand: z.string().nullable(),
+                    last4: z.string().nullable(),
+                })
+                .nullable(),
+        })
+        .nullable(),
+});
+```
+
+## Inferred TypeScript Type
+
+```typescript
+type Charge = z.infer<typeof chargeSchema>;
+
+// Resolves to:
+type Charge = {
+    id: string;
+    amount: number;
+    currency: string;
+    status: string;
+    created: number;
+    description: string | null;
+    receipt_url: string | null;
+    payment_method_details: {
+        type: string | null;
+        card: {
+            brand: string | null;
+            last4: string | null;
+        } | null;
+    } | null;
+}
+```
+
+## Fields
+
+<ResponseField name="id" type="string" required>
+  Unique identifier for the charge (e.g., "ch_1234567890")
+</ResponseField>
+
+<ResponseField name="amount" type="number" required>
+  Amount charged in cents (e.g., 2500 = $25.00)
+</ResponseField>
+
+<ResponseField name="currency" type="string" required>
+  Three-letter ISO currency code (e.g., "usd", "eur", "gbp")
+</ResponseField>
+
+<ResponseField name="status" type="string" required>
+  Current status of the charge. Common values:
+  - `"succeeded"` - Charge was successful
+  - `"pending"` - Charge is being processed
+  - `"failed"` - Charge failed
+</ResponseField>
+
+<ResponseField name="created" type="number" required>
+  Unix timestamp (seconds since epoch) when the charge was created
+</ResponseField>
+
+<ResponseField name="description" type="string | null" required>
+  Description of the charge for record-keeping and display purposes
+</ResponseField>
+
+<ResponseField name="receipt_url" type="string | null" required>
+  URL to the receipt for this charge. Can be shared with the customer
+</ResponseField>
+
+<ResponseField name="payment_method_details" type="object | null" required>
+  Details about the payment method used for the charge
+  
+  <Expandable title="payment_method_details properties">
+    <ResponseField name="type" type="string | null">
+      Type of payment method used (e.g., "card", "bank_account", "ach_debit")
+    </ResponseField>
+    
+    <ResponseField name="card" type="object | null">
+      Card-specific payment details (present when type is "card")
+      
+      <Expandable title="card properties">
+        <ResponseField name="brand" type="string | null">
+          Card brand (e.g., "visa", "mastercard", "amex", "discover")
+        </ResponseField>
+        
+        <ResponseField name="last4" type="string | null">
+          Last 4 digits of the card number
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Usage Examples
+
+### Basic Validation
+
+```typescript
+import { chargeSchema } from '@/lib/stripe-ui-types';
+
+const chargeData = {
+  id: "ch_1234567890",
+  amount: 5000,
+  currency: "usd",
+  status: "succeeded",
+  created: 1704067200,
+  description: "Payment for order #1234",
+  receipt_url: "https://pay.stripe.com/receipts/...",
+  payment_method_details: {
+    type: "card",
+    card: {
+      brand: "visa",
+      last4: "4242"
+    }
+  }
+};
+
+const validated = chargeSchema.parse(chargeData);
+```
+
+### Display Charge Information
+
+```typescript
+import { z } from 'zod';
+import { chargeSchema } from '@/lib/stripe-ui-types';
+
+type Charge = z.infer<typeof chargeSchema>;
+
+function formatCurrency(amount: number, currency: string): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+  }).format(amount / 100);
+}
+
+function formatDate(timestamp: number): string {
+  return new Date(timestamp * 1000).toLocaleString();
+}
+
+interface ChargeCardProps {
+  charge: Charge;
+}
+
+export function ChargeCard({ charge }: ChargeCardProps) {
+  const cardInfo = charge.payment_method_details?.card;
+  
+  return (
+    <div>
+      <h3>Charge {charge.id}</h3>
+      <p>Amount: {formatCurrency(charge.amount, charge.currency)}</p>
+      <p>Status: {charge.status}</p>
+      <p>Created: {formatDate(charge.created)}</p>
+      {charge.description && <p>Description: {charge.description}</p>}
+      
+      {cardInfo && (
+        <p>
+          Payment: {cardInfo.brand?.toUpperCase() ?? "Card"} ending in {cardInfo.last4}
+        </p>
+      )}
+      
+      {charge.receipt_url && (
+        <a href={charge.receipt_url} target="_blank" rel="noopener noreferrer">
+          View Receipt
+        </a>
+      )}
+    </div>
+  );
+}
+```
+
+### Check Charge Status
+
+```typescript
+function isChargeSuccessful(charge: z.infer<typeof chargeSchema>): boolean {
+  return charge.status === "succeeded";
+}
+
+function getPaymentMethodSummary(charge: z.infer<typeof chargeSchema>): string {
+  const details = charge.payment_method_details;
+  
+  if (!details) return "Unknown payment method";
+  
+  if (details.type === "card" && details.card) {
+    const brand = details.card.brand ?? "Card";
+    const last4 = details.card.last4 ?? "****";
+    return `${brand} ending in ${last4}`;
+  }
+  
+  return details.type ?? "Unknown payment method";
+}
+
+const charge = chargeSchema.parse(chargeData);
+
+if (isChargeSuccessful(charge)) {
+  console.log(`Payment successful: ${getPaymentMethodSummary(charge)}`);
+} else {
+  console.log(`Payment ${charge.status}`);
+}
+```
+
+### Handle Missing Payment Details
+
+```typescript
+const chargeWithoutDetails = {
+  id: "ch_9876543210",
+  amount: 1000,
+  currency: "usd",
+  status: "succeeded",
+  created: 1704067200,
+  description: null,
+  receipt_url: null,
+  payment_method_details: null
+};
+
+const validated = chargeSchema.parse(chargeWithoutDetails); // Valid
+console.log(validated.payment_method_details); // null
+```
+
+### Safe Parsing with Error Handling
+
+```typescript
+const result = chargeSchema.safeParse(chargeData);
+
+if (result.success) {
+  const charge = result.data;
+  console.log(`Charge ${charge.id}: ${formatCurrency(charge.amount, charge.currency)}`);
+} else {
+  console.error("Invalid charge data:", result.error.issues);
+}
+```
+
+### Filter and Aggregate Charges
+
+```typescript
+const charges = rawCharges.map(data => chargeSchema.parse(data));
+
+const successfulCharges = charges.filter(c => c.status === "succeeded");
+const failedCharges = charges.filter(c => c.status === "failed");
+
+const totalAmount = successfulCharges.reduce((sum, c) => sum + c.amount, 0);
+
+console.log(`Total successful charges: ${formatCurrency(totalAmount, "usd")}`);
+```
+
+### Group Charges by Payment Method
+
+```typescript
+function groupChargesByPaymentMethod(charges: z.infer<typeof chargeSchema>[]) {
+  return charges.reduce((acc, charge) => {
+    const type = charge.payment_method_details?.type ?? "unknown";
+    if (!acc[type]) acc[type] = [];
+    acc[type].push(charge);
+    return acc;
+  }, {} as Record<string, typeof charges>);
+}
+
+const grouped = groupChargesByPaymentMethod(charges);
+console.log(`Card payments: ${grouped.card?.length ?? 0}`);
+```
+
+## Validation Rules
+
+- **id**: Required string
+- **amount**: Required number (in cents)
+- **currency**: Required string
+- **status**: Required string
+- **created**: Required number (Unix timestamp)
+- **description**: Optional string (can be null)
+- **receipt_url**: Optional URL (can be null)
+- **payment_method_details**: Optional object (can be null)
+  - **type**: Optional string (can be null)
+  - **card**: Optional object (can be null)
+    - **brand**: Optional string (can be null)
+    - **last4**: Optional string (can be null)
+
+## Related Schemas
+
+- [Customer Schema](/api/customer-schema) - Customer making the payment
+- [Invoice Schema](/api/invoice-schema) - Charges are associated with invoices
+- [Subscription Schema](/api/subscription-schema) - Recurring charges for subscriptions

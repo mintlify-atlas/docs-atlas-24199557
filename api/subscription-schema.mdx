@@ -1,0 +1,412 @@
+---
+title: 'Subscription Schema'
+description: 'Zod schema for validating Stripe subscription data with billing periods, plans, and status'
+---
+
+## Overview
+
+The `subscriptionSchema` validates subscription data from Stripe, including status, billing periods, plan details, and payment methods. It uses `.passthrough()` to allow additional Stripe fields not explicitly defined in the schema.
+
+## Schema Definition
+
+```typescript
+import { z } from "zod";
+
+export const subscriptionSchema = z.object({
+    id: z.string(),
+    status: z.string(), // "active", "past_due", "canceled", etc.
+    customer: z.string(),
+    currency: z.string(),
+    current_period_start: z.number().optional().nullable(),
+    current_period_end: z.number().optional().nullable(),
+    cancel_at_period_end: z.boolean(),
+    canceled_at: z.number().nullable(),
+    created: z.number(),
+    latest_invoice: z.string().nullable(),
+    default_payment_method: z.string().nullable(),
+    plan: z
+      .object({
+        id: z.string(),
+        amount: z.number(),
+        currency: z.string(),
+        interval: z.string(),
+        product: z.string(),
+      })
+      .nullable(),
+    quantity: z.number().nullable(),
+  }).passthrough();
+```
+
+## Inferred TypeScript Type
+
+```typescript
+type Subscription = z.infer<typeof subscriptionSchema>;
+
+// Resolves to:
+type Subscription = {
+    id: string;
+    status: string;
+    customer: string;
+    currency: string;
+    current_period_start?: number | null;
+    current_period_end?: number | null;
+    cancel_at_period_end: boolean;
+    canceled_at: number | null;
+    created: number;
+    latest_invoice: string | null;
+    default_payment_method: string | null;
+    plan: {
+        id: string;
+        amount: number;
+        currency: string;
+        interval: string;
+        product: string;
+    } | null;
+    quantity: number | null;
+    [key: string]: any; // Due to .passthrough()
+}
+```
+
+## Fields
+
+<ResponseField name="id" type="string" required>
+  Unique identifier for the subscription (e.g., "sub_1234567890")
+</ResponseField>
+
+<ResponseField name="status" type="string" required>
+  Current status of the subscription. Common values:
+  - `"active"` - Subscription is active and current
+  - `"past_due"` - Payment failed, retrying
+  - `"canceled"` - Subscription has been canceled
+  - `"incomplete"` - Initial payment attempt failed
+  - `"incomplete_expired"` - First invoice not paid within 23 hours
+  - `"trialing"` - In trial period
+  - `"unpaid"` - Failed to pay, no longer retrying
+</ResponseField>
+
+<ResponseField name="customer" type="string" required>
+  Stripe customer ID associated with this subscription (e.g., "cus_1234567890")
+</ResponseField>
+
+<ResponseField name="currency" type="string" required>
+  Three-letter ISO currency code (e.g., "usd", "eur", "gbp")
+</ResponseField>
+
+<ResponseField name="current_period_start" type="number | null | undefined">
+  Unix timestamp when the current billing period started
+</ResponseField>
+
+<ResponseField name="current_period_end" type="number | null | undefined">
+  Unix timestamp when the current billing period ends
+</ResponseField>
+
+<ResponseField name="cancel_at_period_end" type="boolean" required>
+  Whether the subscription will be canceled at the end of the current period
+</ResponseField>
+
+<ResponseField name="canceled_at" type="number | null" required>
+  Unix timestamp when the subscription was canceled (null if not canceled)
+</ResponseField>
+
+<ResponseField name="created" type="number" required>
+  Unix timestamp when the subscription was created
+</ResponseField>
+
+<ResponseField name="latest_invoice" type="string | null" required>
+  ID of the most recent invoice for this subscription (e.g., "in_1234567890")
+</ResponseField>
+
+<ResponseField name="default_payment_method" type="string | null" required>
+  ID of the default payment method for this subscription (e.g., "pm_1234567890")
+</ResponseField>
+
+<ResponseField name="plan" type="object | null" required>
+  Details about the subscription plan
+  
+  <Expandable title="plan properties">
+    <ResponseField name="id" type="string">
+      Unique identifier for the plan (e.g., "plan_1234567890")
+    </ResponseField>
+    
+    <ResponseField name="amount" type="number">
+      Amount charged per billing interval in cents (e.g., 2000 = $20.00)
+    </ResponseField>
+    
+    <ResponseField name="currency" type="string">
+      Three-letter ISO currency code for the plan
+    </ResponseField>
+    
+    <ResponseField name="interval" type="string">
+      Billing frequency: "day", "week", "month", or "year"
+    </ResponseField>
+    
+    <ResponseField name="product" type="string">
+      ID of the product this plan belongs to (e.g., "prod_1234567890")
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="quantity" type="number | null" required>
+  Quantity of the plan (e.g., number of seats). Multiply by plan amount for total cost
+</ResponseField>
+
+## Passthrough Behavior
+
+The schema uses `.passthrough()`, which means additional properties from the Stripe API will be preserved without validation. This is useful for accessing extended Stripe subscription fields not explicitly defined in the schema.
+
+```typescript
+const subscription = subscriptionSchema.parse(stripeSubscriptionData);
+
+// Access defined fields
+console.log(subscription.status);
+
+// Access passthrough fields from Stripe
+console.log(subscription.items);           // Not in schema, but preserved
+console.log(subscription.metadata);        // Not in schema, but preserved
+console.log(subscription.trial_end);       // Not in schema, but preserved
+```
+
+## Usage Examples
+
+### Basic Validation
+
+```typescript
+import { subscriptionSchema } from '@/lib/stripe-ui-types';
+
+const subscriptionData = {
+  id: "sub_1234567890",
+  status: "active",
+  customer: "cus_1234567890",
+  currency: "usd",
+  current_period_start: 1704067200,
+  current_period_end: 1706745600,
+  cancel_at_period_end: false,
+  canceled_at: null,
+  created: 1701388800,
+  latest_invoice: "in_1234567890",
+  default_payment_method: "pm_1234567890",
+  plan: {
+    id: "plan_1234567890",
+    amount: 2000,
+    currency: "usd",
+    interval: "month",
+    product: "prod_1234567890"
+  },
+  quantity: 1
+};
+
+const validated = subscriptionSchema.parse(subscriptionData);
+```
+
+### Display Subscription Information
+
+```typescript
+import { z } from 'zod';
+import { subscriptionSchema } from '@/lib/stripe-ui-types';
+
+type Subscription = z.infer<typeof subscriptionSchema>;
+
+function formatCurrency(amount: number, currency: string): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+  }).format(amount / 100);
+}
+
+function formatDate(timestamp: number | null | undefined): string {
+  if (!timestamp) return "N/A";
+  return new Date(timestamp * 1000).toLocaleDateString();
+}
+
+interface SubscriptionCardProps {
+  subscription: Subscription;
+}
+
+export function SubscriptionCard({ subscription }: SubscriptionCardProps) {
+  const totalAmount = subscription.plan && subscription.quantity
+    ? subscription.plan.amount * subscription.quantity
+    : subscription.plan?.amount ?? 0;
+
+  return (
+    <div>
+      <h3>Subscription {subscription.id}</h3>
+      <p>Status: <span className={subscription.status === "active" ? "active" : "inactive"}>
+        {subscription.status}
+      </span></p>
+      
+      {subscription.plan && (
+        <>
+          <p>
+            {formatCurrency(totalAmount, subscription.currency)} / {subscription.plan.interval}
+            {subscription.quantity && subscription.quantity > 1 && (
+              <> ({subscription.quantity} × {formatCurrency(subscription.plan.amount, subscription.plan.currency)})</>
+            )}
+          </p>
+        </>
+      )}
+      
+      <p>Current Period: {formatDate(subscription.current_period_start)} - {formatDate(subscription.current_period_end)}</p>
+      
+      {subscription.cancel_at_period_end && (
+        <p className="warning">Will cancel on {formatDate(subscription.current_period_end)}</p>
+      )}
+      
+      {subscription.canceled_at && (
+        <p>Canceled on {formatDate(subscription.canceled_at)}</p>
+      )}
+    </div>
+  );
+}
+```
+
+### Check Subscription Status
+
+```typescript
+function isSubscriptionActive(sub: z.infer<typeof subscriptionSchema>): boolean {
+  return sub.status === "active" || sub.status === "trialing";
+}
+
+function isSubscriptionCanceling(sub: z.infer<typeof subscriptionSchema>): boolean {
+  return sub.cancel_at_period_end;
+}
+
+function getDaysUntilRenewal(sub: z.infer<typeof subscriptionSchema>): number | null {
+  if (!sub.current_period_end) return null;
+  const now = Date.now() / 1000;
+  const secondsRemaining = sub.current_period_end - now;
+  return Math.ceil(secondsRemaining / 86400);
+}
+
+const subscription = subscriptionSchema.parse(subscriptionData);
+
+if (isSubscriptionActive(subscription)) {
+  const daysLeft = getDaysUntilRenewal(subscription);
+  console.log(`Active subscription, renews in ${daysLeft} days`);
+}
+
+if (isSubscriptionCanceling(subscription)) {
+  console.log("Subscription set to cancel at period end");
+}
+```
+
+### Calculate Total Cost
+
+```typescript
+function calculateSubscriptionCost(sub: z.infer<typeof subscriptionSchema>): number {
+  if (!sub.plan) return 0;
+  const quantity = sub.quantity ?? 1;
+  return sub.plan.amount * quantity;
+}
+
+function getIntervalDisplay(interval: string): string {
+  const map: Record<string, string> = {
+    day: "daily",
+    week: "weekly",
+    month: "monthly",
+    year: "yearly"
+  };
+  return map[interval] ?? interval;
+}
+
+const cost = calculateSubscriptionCost(subscription);
+const interval = subscription.plan?.interval ?? "month";
+
+console.log(`${formatCurrency(cost, subscription.currency)} ${getIntervalDisplay(interval)}`);
+```
+
+### Handle Missing Plan Data
+
+```typescript
+const subscriptionWithoutPlan = {
+  id: "sub_9876543210",
+  status: "canceled",
+  customer: "cus_9876543210",
+  currency: "usd",
+  cancel_at_period_end: false,
+  canceled_at: 1704067200,
+  created: 1701388800,
+  latest_invoice: null,
+  default_payment_method: null,
+  plan: null,
+  quantity: null
+};
+
+const validated = subscriptionSchema.parse(subscriptionWithoutPlan); // Valid
+console.log(validated.plan); // null
+```
+
+### Safe Parsing with Error Handling
+
+```typescript
+const result = subscriptionSchema.safeParse(subscriptionData);
+
+if (result.success) {
+  const sub = result.data;
+  console.log(`Subscription ${sub.id}: ${sub.status}`);
+} else {
+  console.error("Invalid subscription data:", result.error.issues);
+}
+```
+
+### Filter Subscriptions by Status
+
+```typescript
+const subscriptions = rawSubscriptions.map(data => subscriptionSchema.parse(data));
+
+const activeSubscriptions = subscriptions.filter(s => s.status === "active");
+const canceledSubscriptions = subscriptions.filter(s => s.status === "canceled");
+const trialingSubscriptions = subscriptions.filter(s => s.status === "trialing");
+
+console.log(`Active: ${activeSubscriptions.length}, Canceled: ${canceledSubscriptions.length}`);
+```
+
+### Calculate Monthly Recurring Revenue (MRR)
+
+```typescript
+function calculateMRR(subscriptions: z.infer<typeof subscriptionSchema>[]): number {
+  return subscriptions
+    .filter(s => s.status === "active" && s.plan)
+    .reduce((total, sub) => {
+      const amount = calculateSubscriptionCost(sub);
+      
+      // Normalize to monthly
+      switch (sub.plan?.interval) {
+        case "year":
+          return total + (amount / 12);
+        case "week":
+          return total + (amount * 4.33);
+        case "day":
+          return total + (amount * 30);
+        default: // month
+          return total + amount;
+      }
+    }, 0);
+}
+
+const mrr = calculateMRR(subscriptions);
+console.log(`MRR: ${formatCurrency(mrr, "usd")}`);
+```
+
+## Validation Rules
+
+- **id**: Required string
+- **status**: Required string
+- **customer**: Required customer ID reference
+- **currency**: Required string
+- **current_period_start**: Optional number (can be undefined or null)
+- **current_period_end**: Optional number (can be undefined or null)
+- **cancel_at_period_end**: Required boolean
+- **canceled_at**: Optional number (can be null)
+- **created**: Required number (Unix timestamp)
+- **latest_invoice**: Optional invoice ID reference (can be null)
+- **default_payment_method**: Optional payment method ID (can be null)
+- **plan**: Optional object (can be null)
+  - All fields required when plan is present
+- **quantity**: Optional number (can be null)
+- Additional fields are preserved via `.passthrough()`
+
+## Related Schemas
+
+- [Customer Schema](/api/customer-schema) - Customer referenced by `customer` field
+- [Invoice Schema](/api/invoice-schema) - Referenced by `latest_invoice` field
+- [Charge Schema](/api/charge-schema) - Payment charges for subscription billing

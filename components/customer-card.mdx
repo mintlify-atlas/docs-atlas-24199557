@@ -1,0 +1,128 @@
+---
+title: CustomerCard
+description: A form component for viewing and updating Stripe customer information including name, email, currency, and address details.
+---
+
+## Overview
+
+The `CustomerCard` component provides a complete form interface for managing customer data in Stripe. It fetches existing customer information, displays it in an editable form, and handles updates with optimistic UI updates.
+
+## Features
+
+- Fetches and displays existing customer data
+- Editable form fields for customer details
+- Address management (line1, line2, city, state, postal code, country)
+- Form validation using Zod schema
+- Optimistic updates with React Query
+- Loading and error states
+
+## Import
+
+```tsx
+import { CustomerCard } from "~/components/stripe-ui-kit/customer";
+```
+
+## Usage
+
+```tsx
+export default function CustomerPage() {
+  return (
+    <div className="container mx-auto p-6">
+      <CustomerCard />
+    </div>
+  );
+}
+```
+
+## API Endpoints
+
+The component interacts with two API endpoints:
+
+### GET `/api/stripe-ui-kit/customer`
+
+Fetches the current customer data. The response is used to populate the form fields.
+
+### POST `/api/stripe-ui-kit/customer-update`
+
+Updates customer information with the form data. Expects a JSON body matching the `customerSchema`.
+
+**Request Body:**
+
+```typescript
+{
+  name: string;
+  email: string;
+  currency: string;
+  address: {
+    line1: string;
+    line2: string;
+    city: string;
+    state: string;
+    postal_code: string;
+    country: string;
+  };
+}
+```
+
+## Component Structure
+
+The component renders:
+
+1. **Customer Name & Email** - Two-column grid layout
+2. **Currency** - Single input field
+3. **Address Line 1 & 2** - Two-column grid layout
+4. **City, State, Postal Code** - Three-column grid layout
+5. **Save Button** - Disabled during submission
+
+## Code Example
+
+```tsx
+"use client";
+
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { customerSchema } from "~/lib/stripe-ui-types";
+import { CustomerCard } from "~/components/stripe-ui-kit/customer";
+
+type CustomerFormValues = z.infer<typeof customerSchema>;
+
+export default function BillingPage() {
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold">Customer Information</h1>
+      <CustomerCard />
+    </div>
+  );
+}
+```
+
+## Form Fields
+
+All fields are rendered using the shadcn/ui Form components with validation:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | text | Customer's full name |
+| `email` | email | Customer's email address |
+| `currency` | text | Default currency (e.g., "usd") |
+| `address.line1` | text | Primary address line |
+| `address.line2` | text | Secondary address line |
+| `address.city` | text | City name |
+| `address.state` | text | State or province |
+| `address.postal_code` | text | ZIP or postal code |
+| `address.country` | text | Country code |
+
+## State Management
+
+- Uses **React Query** for data fetching and cache management
+- Uses **React Hook Form** with Zod validation
+- Automatically refetches customer data after successful updates
+- Query key: `["customer"]`
+
+## Loading States
+
+- Displays `"Loading..."` while fetching customer data
+- Submit button shows `"Saving..."` during mutation
+- Submit button is disabled while `mutation.isPending`

@@ -1,0 +1,193 @@
+---
+title: CustomerInvoices
+description: A table component that displays a customer's Stripe invoices with date, amount, status, and download links.
+---
+
+## Overview
+
+The `CustomerInvoices` component fetches and displays a list of customer invoices from Stripe in a formatted table. It includes invoice details, payment status badges, and links to hosted invoice PDFs.
+
+## Features
+
+- Fetches customer invoices from Stripe
+- Displays invoice date, number, amount, and status
+- Status badges with visual indicators
+- Links to hosted invoice URLs
+- Currency formatting
+- Loading and error states
+- Empty state when no invoices exist
+
+## Import
+
+```tsx
+import { CustomerInvoices } from "~/components/stripe-ui-kit/invoices";
+```
+
+## Usage
+
+```tsx
+export default function InvoicesPage() {
+  return (
+    <div className="container mx-auto p-6">
+      <CustomerInvoices />
+    </div>
+  );
+}
+```
+
+## API Endpoint
+
+### GET `/api/stripe-ui-kit/invoices`
+
+Fetches all invoices for the current customer. Returns an array of invoice objects validated against `invoiceSchema`.
+
+**Response Format:**
+
+```typescript
+[
+  {
+    id: string;
+    created: number; // Unix timestamp
+    number: string | null;
+    amount_due: number; // Amount in cents
+    currency: string;
+    status: string; // "paid", "open", "void", etc.
+    hosted_invoice_url: string | null;
+  }
+]
+```
+
+## Table Columns
+
+The component displays the following columns:
+
+| Column | Description |
+|--------|-------------|
+| **Date** | Invoice creation date (formatted as locale date) |
+| **Invoice #** | Invoice number or "—" if not available |
+| **Amount** | Amount due formatted as currency |
+| **Status** | Badge showing payment status |
+| **Link** | "View" link to hosted invoice PDF |
+
+## Status Badges
+
+- **Paid invoices**: Default badge variant (typically blue/primary color)
+- **Other statuses**: Secondary badge variant (typically gray)
+
+## Code Example
+
+```tsx
+"use client";
+
+import { CustomerInvoices } from "~/components/stripe-ui-kit/invoices";
+
+export default function BillingPage() {
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold">Invoices</h1>
+      <CustomerInvoices />
+    </div>
+  );
+}
+```
+
+## Data Formatting
+
+### Date Formatting
+
+```typescript
+new Date(invoice.created * 1000).toLocaleDateString()
+```
+
+Converts Unix timestamp to locale-specific date string.
+
+### Currency Formatting
+
+```typescript
+(invoice.amount_due / 100).toLocaleString(undefined, {
+  style: "currency",
+  currency: invoice.currency.toUpperCase(),
+})
+```
+
+Converts cents to dollars/euros and formats with currency symbol.
+
+## States
+
+### Loading State
+
+```tsx
+<div>Loading invoices...</div>
+```
+
+### Error State
+
+```tsx
+<div>Failed to load invoices</div>
+```
+
+### Empty State
+
+```tsx
+<Card>
+  <CardHeader>
+    <CardTitle>No Invoices Found</CardTitle>
+  </CardHeader>
+</Card>
+```
+
+## React Query Integration
+
+- **Query Key**: `["invoices"]`
+- **Validation**: Uses Zod `invoiceArray` schema for runtime type safety
+- Automatically refetches on window focus and network reconnection
+
+## Full Component Example
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { Badge } from "~/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
+import { invoiceSchema } from "~/lib/stripe-ui-types";
+import { z } from "zod";
+
+const invoiceArray = z.array(invoiceSchema);
+
+export function CustomerInvoices() {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["invoices"],
+    queryFn: async () => {
+      const res = await fetch("/api/stripe-ui-kit/invoices");
+      if (!res.ok) throw new Error("Failed to fetch invoices");
+      const json = await res.json();
+      return invoiceArray.parse(json);
+    },
+  });
+
+  if (isLoading) return <div>Loading invoices...</div>;
+  if (error) return <div>Failed to load invoices</div>;
+  if (!data?.length) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>No Invoices Found</CardTitle>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Customer Invoices</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          {/* Table content */}
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+```

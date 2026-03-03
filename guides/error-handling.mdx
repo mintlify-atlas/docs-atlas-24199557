@@ -1,0 +1,674 @@
+---
+title: Error Handling
+description: Comprehensive guide to handling errors in Stripe UI Kit components, API routes, and Stripe API calls
+---
+
+Proper error handling is critical for building reliable payment experiences. This guide covers error handling patterns throughout the Stripe UI Kit.
+
+## Error Handling Architecture
+
+The Stripe UI Kit has three error handling layers:
+
+1. **Client Components** - Handle loading states and query errors
+2. **API Route Handler** - Validates requests and catches errors
+3. **Stripe Functions** - Handle Stripe API errors
+
+## API Route Error Handling
+
+The centralized route handler in `~/app/api/stripe-ui-kit/[route]/route.ts` provides comprehensive error handling:
+
+### Route Not Found (404)
+
+```ts
+// From route.ts:40-45
+const handlerSet = handlers[route as keyof typeof handlers];
+
+if (!handlerSet || !handlerSet[method]) {
+  return NextResponse.json(
+    { error: "Route or method not supported" },
+    { status: 404 }
+  );
+}
+```
+
+**When it happens:** Invalid route or HTTP method (e.g., `POST /api/stripe-ui-kit/invalid-route`)
+
+### Unauthorized (401)
+
+```ts
+// From route.ts:47-50
+const customerId = await auth(req);
+if (!customerId) {
+  return NextResponse.json(
+    { error: "Unauthorized" },
+    { status: 401 }
+  );
+}
+```
+
+**When it happens:** User is not authenticated or auth function returns `null`
+
+### Validation Errors (400)
+
+```ts
+// From route.ts:70-73
+if (err instanceof z.ZodError) {
+  return NextResponse.json(
+    { error: "Invalid body", details: err.errors },
+    { status: 400 }
+  );
+}
+```
+
+**When it happens:** Request body fails Zod schema validation
+
+**Response format:**
+```json
+{
+  "error": "Invalid body",
+  "details": [
+    {
+      "path": ["email"],
+      "message": "Invalid email",
+      "code": "invalid_string"
+    }
+  ]
+}
+```
+
+### Internal Server Error (500)
+
+```ts
+// From route.ts:75-76
+console.error("Stripe route error:", err);
+return NextResponse.json(
+  { error: "Internal server error" },
+  { status: 500 }
+);
+```
+
+**When it happens:** Unexpected errors (database failures, Stripe API errors, etc.)
+
+## Stripe API Error Handling
+
+Stripe functions in `~/lib/stripe-ui-kit.ts` use try-catch blocks to handle API errors:
+
+### Pattern 1: Retrieve Customer
+
+```ts
+// From stripe-ui-kit.ts:12-26
+async function getCustomerInfo(body: z.infer<typeof blankSchema>, customerId: string) {
+  try {
+    const customer = await stripe.customers.retrieve(customerId);
+
+    if (!customer || customer.deleted) {
+      throw new Error(`Customer ${customerId} not found or deleted`);
+    }
+
+    return customer;
+  } catch (error) {
+    console.error("Error retrieving customer:", error);
+    throw new Error("Failed to retrieve customer information");
+  }
+}
+```
+
+**Key points:**
+- Checks for deleted customers
+- Logs the original error for debugging
+- Throws a user-friendly error message
+
+### Pattern 2: List Resources
+
+```ts
+// From stripe-ui-kit.ts:28-40
+async function getCustomerInvoices(body: z.infer<typeof blankSchema>, customerId: string) {
+  try {
+    const invoices = await stripe.invoices.list({
+      customer: customerId
+    });
+
+    return invoices.data;
+  } catch (error) {
+    console.error("Error retrieving customer:", error);
+    throw new Error("Failed to retrieve customer information");
+  }
+}
+```
+
+### Pattern 3: Update Customer
+
+```ts
+// From stripe-ui-kit.ts:73-96
+export async function updateCustomer(
+  body: z.infer<typeof customerSchema>,
+  customerId: string
+) {
+  try {
+    const clean = (obj: Record<string, any>) =>
+      Object.fromEntries(
+        Object.entries(obj).filter(
+          ([, value]) => value !== null && value !== undefined && value !== ""
+        )
+      );
+
+    const updated = await stripe.customers.update(customerId, {
+      name: body.name || undefined,
+      email: body.email || undefined,
+      address: clean(body.address),
+    });
+
+    return updated;
+  } catch (error) {
+    console.error("Stripe update failed:", error);
+    throw new Error("Failed to update Stripe customer");
+  }
+}
+```
+
+**Note:** Includes data cleaning to remove empty values before sending to Stripe
+
+## Client-Side Error Handling
+
+### Basic Error Display
+
+```tsx
+// From subscriptions.tsx:21-32
+const { data, isLoading, error } = useQuery({
+  queryKey: ["subscriptions"],
+  queryFn: async () => {
+    const res = await fetch("/api/stripe-ui-kit/subscriptions");
+    if (!res.ok) throw new Error("Failed to fetch charges");
+    const json = await res.json();
+    return subscriptionsSchema.parse(json);
+  },
+});
+
+if (isLoading) return <div>Loading subscriptions...</div>;
+if (error) return <div>Failed to load subscriptions</div>;
+```
+
+### Enhanced Error Handling
+
+Improve the basic pattern with detailed error messages:
+
+```tsx
+import { useQuery } from '@tanstack/react-query';
+import { Alert, AlertDescription, AlertTitle } from '~/components/ui/alert';
+import { Button } from '~/components/ui/button';
+
+export function CustomerPayments() {
+  const { data, isLoading, error, refetch } = useQuery({
+    queryKey: ['charges'],
+    queryFn: async () => {
+      const res = await fetch('/api/stripe-ui-kit/charges');
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        const message = errorData.error || 'Failed to fetch payments';
+        throw new Error(message);
+      }
+      
+      return res.json();
+    },
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+  });
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="py-10 text-center">
+          <div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto" />
+          <p className="mt-4 text-muted-foreground">Loading payments...</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Alert variant="destructive">
+        <AlertTitle>Error loading payments</AlertTitle>
+        <AlertDescription>
+          {error.message}
+          <Button 
+            onClick={() => refetch()} 
+            variant="outline" 
+            size="sm"
+            className="mt-4"
+          >
+            Try Again
+          </Button>
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
+  // ... render data
+}
+```
+
+## Mutation Error Handling
+
+### Basic Pattern
+
+```tsx
+// From customer.tsx:53-66
+const mutation = useMutation({
+  mutationFn: async (values: CustomerFormValues) => {
+    const res = await fetch("/api/stripe-ui-kit/customer-update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(values),
+    });
+    if (!res.ok) throw new Error("Failed to update customer");
+    return res.json();
+  },
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ["customer"] });
+  },
+});
+```
+
+### Enhanced Mutation with Error Callbacks
+
+```tsx
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner'; // or your toast library
+
+export function CustomerCard() {
+  const queryClient = useQueryClient();
+  const [errorDetails, setErrorDetails] = useState<string | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: async (values: CustomerFormValues) => {
+      const res = await fetch('/api/stripe-ui-kit/customer-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+      });
+      
+      if (!res.ok) {
+        const errorData = await res.json();
+        
+        // Handle validation errors
+        if (res.status === 400 && errorData.details) {
+          const validationErrors = errorData.details
+            .map((err: any) => `${err.path.join('.')}: ${err.message}`)
+            .join(', ');
+          throw new Error(validationErrors);
+        }
+        
+        throw new Error(errorData.error || 'Failed to update customer');
+      }
+      
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['customer'] });
+      toast.success('Customer updated successfully');
+      setErrorDetails(null);
+    },
+    onError: (error: Error) => {
+      console.error('Update failed:', error);
+      setErrorDetails(error.message);
+      toast.error('Failed to update customer');
+    },
+  });
+
+  // Display error details
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Customer</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {errorDetails && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertDescription>{errorDetails}</AlertDescription>
+          </Alert>
+        )}
+        
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit((data) => mutation.mutate(data))}>
+            {/* Form fields */}
+            
+            <Button 
+              type="submit" 
+              disabled={mutation.isPending}
+            >
+              {mutation.isPending ? 'Saving...' : 'Save Changes'}
+            </Button>
+          </form>
+        </Form>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Runtime Validation Errors
+
+The components use Zod schemas to validate API responses:
+
+```tsx
+// From payments.tsx:18,27
+const chargeArraySchema = z.array(chargeSchema);
+
+const { data } = useQuery({
+  queryFn: async () => {
+    const res = await fetch('/api/stripe-ui-kit/charges');
+    if (!res.ok) throw new Error('Failed to fetch charges');
+    const json = await res.json();
+    return chargeArraySchema.parse(json); // Runtime validation
+  },
+});
+```
+
+### Handling Parse Errors
+
+```tsx
+import { z } from 'zod';
+
+const { data, error } = useQuery({
+  queryFn: async () => {
+    const res = await fetch('/api/stripe-ui-kit/charges');
+    if (!res.ok) throw new Error('Failed to fetch charges');
+    
+    const json = await res.json();
+    
+    try {
+      return chargeArraySchema.parse(json);
+    } catch (parseError) {
+      if (parseError instanceof z.ZodError) {
+        console.error('Data validation failed:', parseError.errors);
+        throw new Error('Invalid data format received from server');
+      }
+      throw parseError;
+    }
+  },
+});
+```
+
+## Empty State Handling
+
+Handle empty results gracefully:
+
+```tsx
+// From invoices.tsx:36-44
+if (!data?.length) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>No Invoices Found</CardTitle>
+      </CardHeader>
+    </Card>
+  );
+}
+```
+
+### Enhanced Empty State
+
+```tsx
+if (!data?.length) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>No Invoices Found</CardTitle>
+      </CardHeader>
+      <CardContent className="py-10 text-center">
+        <p className="text-muted-foreground mb-4">
+          You don't have any invoices yet.
+        </p>
+        <Button asChild>
+          <a href="https://billing.stripe.com">View Billing Portal</a>
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Common Stripe API Errors
+
+### Card Errors
+
+```ts
+import Stripe from 'stripe';
+
+try {
+  const paymentIntent = await stripe.paymentIntents.create({
+    amount: 1000,
+    currency: 'usd',
+    customer: customerId,
+  });
+} catch (error) {
+  if (error instanceof Stripe.errors.StripeCardError) {
+    // Card was declined
+    return NextResponse.json(
+      { error: 'Card declined', code: error.code },
+      { status: 402 }
+    );
+  }
+  throw error;
+}
+```
+
+### Rate Limit Errors
+
+```ts
+try {
+  const customer = await stripe.customers.retrieve(customerId);
+} catch (error) {
+  if (error instanceof Stripe.errors.StripeRateLimitError) {
+    // Too many requests
+    console.error('Rate limit exceeded');
+    return NextResponse.json(
+      { error: 'Too many requests, please try again later' },
+      { status: 429 }
+    );
+  }
+  throw error;
+}
+```
+
+### API Connection Errors
+
+```ts
+try {
+  const invoices = await stripe.invoices.list({ customer: customerId });
+} catch (error) {
+  if (error instanceof Stripe.errors.StripeConnectionError) {
+    console.error('Network error connecting to Stripe');
+    return NextResponse.json(
+      { error: 'Unable to connect to payment processor' },
+      { status: 503 }
+    );
+  }
+  throw error;
+}
+```
+
+### Invalid Request Errors
+
+```ts
+try {
+  await stripe.customers.update(customerId, { email: 'invalid-email' });
+} catch (error) {
+  if (error instanceof Stripe.errors.StripeInvalidRequestError) {
+    console.error('Invalid request:', error.message);
+    return NextResponse.json(
+      { error: 'Invalid request', details: error.message },
+      { status: 400 }
+    );
+  }
+  throw error;
+}
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Always log errors server-side">
+    Use `console.error()` to log the full error details for debugging while returning user-friendly messages to clients.
+    
+    ```ts
+    catch (error) {
+      console.error('Stripe API error:', error);
+      throw new Error('Failed to process request');
+    }
+    ```
+  </Step>
+
+  <Step title="Use specific error messages">
+    Provide actionable error messages that help users understand what went wrong.
+    
+    ```tsx
+    // Bad
+    if (error) return <div>Error</div>;
+    
+    // Good
+    if (error) return (
+      <Alert variant="destructive">
+        <AlertTitle>Unable to load payments</AlertTitle>
+        <AlertDescription>
+          We couldn't retrieve your payment history. Please try again or contact support.
+        </AlertDescription>
+      </Alert>
+    );
+    ```
+  </Step>
+
+  <Step title="Implement retry logic">
+    Use TanStack Query's built-in retry mechanism for transient failures.
+    
+    ```tsx
+    useQuery({
+      queryKey: ['charges'],
+      queryFn: fetchCharges,
+      retry: 3,
+      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+    });
+    ```
+  </Step>
+
+  <Step title="Validate inputs before API calls">
+    Use Zod schemas to validate data before sending to Stripe.
+    
+    ```ts
+    const validated = customerSchema.parse(requestBody);
+    await stripe.customers.update(customerId, validated);
+    ```
+  </Step>
+
+  <Step title="Handle all error types">
+    Check for specific Stripe error types to provide appropriate responses.
+    
+    ```ts
+    if (error instanceof Stripe.errors.StripeCardError) {
+      // Handle card errors
+    } else if (error instanceof Stripe.errors.StripeRateLimitError) {
+      // Handle rate limits
+    } else {
+      // Handle generic errors
+    }
+    ```
+  </Step>
+</Steps>
+
+## Error Monitoring
+
+### Integrating Sentry
+
+```ts
+// ~/app/api/stripe-ui-kit/[route]/route.ts
+import * as Sentry from '@sentry/nextjs';
+
+async function routeHandler(method: 'GET' | 'POST', req: NextRequest, route: string) {
+  try {
+    // ... existing logic
+  } catch (err) {
+    // Log to Sentry
+    Sentry.captureException(err, {
+      contexts: {
+        stripe: {
+          route,
+          method,
+          customerId: await auth(req),
+        },
+      },
+    });
+
+    if (err instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: 'Invalid body', details: err.errors },
+        { status: 400 }
+      );
+    }
+
+    console.error('Stripe route error:', err);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
+```
+
+<Note>
+Always sanitize sensitive data (like full customer IDs or payment details) before sending to error monitoring services.
+</Note>
+
+## Testing Error Scenarios
+
+### Mock Stripe Errors
+
+```ts
+// In tests
+import { vi } from 'vitest';
+import Stripe from 'stripe';
+
+vi.mock('stripe', () => ({
+  default: vi.fn().mockImplementation(() => ({
+    customers: {
+      retrieve: vi.fn().mockRejectedValue(
+        new Stripe.errors.StripeInvalidRequestError({
+          message: 'No such customer',
+        })
+      ),
+    },
+  })),
+}));
+```
+
+### Test Client Error Handling
+
+```tsx
+import { render, screen } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+
+test('displays error message on fetch failure', async () => {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+
+  // Mock failed fetch
+  global.fetch = vi.fn().mockResolvedValue({
+    ok: false,
+    status: 500,
+  });
+
+  render(
+    <QueryClientProvider client={queryClient}>
+      <CustomerPayments />
+    </QueryClientProvider>
+  );
+
+  expect(await screen.findByText(/failed to load payments/i)).toBeInTheDocument();
+});
+```
+
+<Warning>
+Never expose sensitive error details (like Stripe secret keys, full customer IDs, or internal stack traces) to client-side error messages.
+</Warning>

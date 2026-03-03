@@ -1,0 +1,241 @@
+---
+title: 'Invoice Schema'
+description: 'Zod schema for validating Stripe invoice data with amounts, status, and payment details'
+---
+
+## Overview
+
+The `invoiceSchema` validates invoice data from Stripe, including invoice numbers, status, amounts, and URLs. It uses `.passthrough()` to allow additional Stripe fields not explicitly defined in the schema.
+
+## Schema Definition
+
+```typescript
+import { z } from "zod";
+
+export const invoiceSchema = z.object({
+    id: z.string(),
+    number: z.string().nullable(),
+    status: z.string().nullable(),
+    customer: z.string().nullable(),
+    hosted_invoice_url: z.string().nullable(),
+    invoice_pdf: z.string().nullable(),
+    amount_due: z.number(),
+    amount_paid: z.number(),
+    currency: z.string(),
+    created: z.number()
+}).passthrough();
+```
+
+## Inferred TypeScript Type
+
+```typescript
+type Invoice = z.infer<typeof invoiceSchema>;
+
+// Resolves to:
+type Invoice = {
+    id: string;
+    number: string | null;
+    status: string | null;
+    customer: string | null;
+    hosted_invoice_url: string | null;
+    invoice_pdf: string | null;
+    amount_due: number;
+    amount_paid: number;
+    currency: string;
+    created: number;
+    [key: string]: any; // Due to .passthrough()
+}
+```
+
+## Fields
+
+<ResponseField name="id" type="string" required>
+  Unique identifier for the invoice (e.g., "in_1234567890")
+</ResponseField>
+
+<ResponseField name="number" type="string | null" required>
+  Sequential invoice number for customer-facing identification (e.g., "INV-0001")
+</ResponseField>
+
+<ResponseField name="status" type="string | null" required>
+  Current status of the invoice. Common values:
+  - `"draft"` - Invoice is being prepared
+  - `"open"` - Invoice is finalized and awaiting payment
+  - `"paid"` - Invoice has been paid
+  - `"void"` - Invoice has been voided
+  - `"uncollectible"` - Invoice is marked as uncollectible
+</ResponseField>
+
+<ResponseField name="customer" type="string | null" required>
+  Stripe customer ID associated with this invoice (e.g., "cus_1234567890")
+</ResponseField>
+
+<ResponseField name="hosted_invoice_url" type="string | null" required>
+  URL to the hosted invoice page where customers can view and pay
+</ResponseField>
+
+<ResponseField name="invoice_pdf" type="string | null" required>
+  URL to download the invoice as a PDF
+</ResponseField>
+
+<ResponseField name="amount_due" type="number" required>
+  Total amount due in cents (e.g., 1000 = $10.00)
+</ResponseField>
+
+<ResponseField name="amount_paid" type="number" required>
+  Amount already paid in cents (e.g., 500 = $5.00)
+</ResponseField>
+
+<ResponseField name="currency" type="string" required>
+  Three-letter ISO currency code (e.g., "usd", "eur", "gbp")
+</ResponseField>
+
+<ResponseField name="created" type="number" required>
+  Unix timestamp (seconds since epoch) when the invoice was created
+</ResponseField>
+
+## Passthrough Behavior
+
+The schema uses `.passthrough()`, which means additional properties from the Stripe API will be preserved without validation. This is useful for accessing extended Stripe invoice fields not explicitly defined in the schema.
+
+```typescript
+const invoice = invoiceSchema.parse(stripeInvoiceData);
+
+// Access defined fields
+console.log(invoice.amount_due);
+
+// Access passthrough fields from Stripe
+console.log(invoice.subscription); // Not in schema, but preserved
+console.log(invoice.metadata);     // Not in schema, but preserved
+```
+
+## Usage Examples
+
+### Basic Validation
+
+```typescript
+import { invoiceSchema } from '@/lib/stripe-ui-types';
+
+const invoiceData = {
+  id: "in_1234567890",
+  number: "INV-0001",
+  status: "paid",
+  customer: "cus_1234567890",
+  hosted_invoice_url: "https://invoice.stripe.com/i/acct_xxx/test_xxx",
+  invoice_pdf: "https://pay.stripe.com/invoice/acct_xxx/test_xxx/pdf",
+  amount_due: 5000,
+  amount_paid: 5000,
+  currency: "usd",
+  created: 1704067200
+};
+
+const validated = invoiceSchema.parse(invoiceData);
+```
+
+### Display Invoice Information
+
+```typescript
+import { z } from 'zod';
+import { invoiceSchema } from '@/lib/stripe-ui-types';
+
+type Invoice = z.infer<typeof invoiceSchema>;
+
+function formatCurrency(amount: number, currency: string): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+  }).format(amount / 100);
+}
+
+function formatDate(timestamp: number): string {
+  return new Date(timestamp * 1000).toLocaleDateString();
+}
+
+interface InvoiceCardProps {
+  invoice: Invoice;
+}
+
+export function InvoiceCard({ invoice }: InvoiceCardProps) {
+  return (
+    <div>
+      <h3>Invoice {invoice.number ?? invoice.id}</h3>
+      <p>Status: {invoice.status ?? "Unknown"}</p>
+      <p>Amount Due: {formatCurrency(invoice.amount_due, invoice.currency)}</p>
+      <p>Amount Paid: {formatCurrency(invoice.amount_paid, invoice.currency)}</p>
+      <p>Created: {formatDate(invoice.created)}</p>
+      {invoice.hosted_invoice_url && (
+        <a href={invoice.hosted_invoice_url}>View Invoice</a>
+      )}
+      {invoice.invoice_pdf && (
+        <a href={invoice.invoice_pdf}>Download PDF</a>
+      )}
+    </div>
+  );
+}
+```
+
+### Check Payment Status
+
+```typescript
+function isInvoicePaid(invoice: z.infer<typeof invoiceSchema>): boolean {
+  return invoice.status === "paid" || invoice.amount_due === invoice.amount_paid;
+}
+
+function getOutstandingBalance(invoice: z.infer<typeof invoiceSchema>): number {
+  return invoice.amount_due - invoice.amount_paid;
+}
+
+const invoice = invoiceSchema.parse(invoiceData);
+
+if (isInvoicePaid(invoice)) {
+  console.log("Invoice is fully paid");
+} else {
+  const outstanding = getOutstandingBalance(invoice);
+  console.log(`Outstanding balance: ${formatCurrency(outstanding, invoice.currency)}`);
+}
+```
+
+### Safe Parsing with Error Handling
+
+```typescript
+const result = invoiceSchema.safeParse(invoiceData);
+
+if (result.success) {
+  const invoice = result.data;
+  console.log(`Invoice ${invoice.number}: ${invoice.status}`);
+} else {
+  console.error("Invalid invoice data:", result.error.issues);
+}
+```
+
+### Filter Invoices by Status
+
+```typescript
+const invoices = rawInvoices.map(data => invoiceSchema.parse(data));
+
+const openInvoices = invoices.filter(inv => inv.status === "open");
+const paidInvoices = invoices.filter(inv => inv.status === "paid");
+const draftInvoices = invoices.filter(inv => inv.status === "draft");
+
+console.log(`Open: ${openInvoices.length}, Paid: ${paidInvoices.length}`);
+```
+
+## Validation Rules
+
+- **id**: Required string
+- **number**: Optional string (can be null)
+- **status**: Optional string (can be null)
+- **customer**: Optional customer ID reference (can be null)
+- **hosted_invoice_url**: Optional URL (can be null)
+- **invoice_pdf**: Optional URL (can be null)
+- **amount_due**: Required number (in cents)
+- **amount_paid**: Required number (in cents)
+- **currency**: Required string
+- **created**: Required number (Unix timestamp)
+- Additional fields are preserved via `.passthrough()`
+
+## Related Schemas
+
+- [Customer Schema](/api/customer-schema) - Customer referenced by `customer` field
+- [Subscription Schema](/api/subscription-schema) - May reference invoice via `latest_invoice`
+- [Charge Schema](/api/charge-schema) - Payment charges associated with invoices

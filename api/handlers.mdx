@@ -1,0 +1,256 @@
+---
+title: "handlers"
+description: "Server-side route handlers for Stripe UI Kit operations"
+---
+
+## Overview
+
+The `handlers` object provides server-side route handlers for interacting with Stripe customer data. Each handler is associated with a specific route and HTTP method (GET or POST), and includes schema validation using Zod.
+
+## Object Structure
+
+Each handler in the object follows this structure:
+
+```typescript
+{
+  "route-name": {
+    METHOD: {
+      schema: ZodSchema,
+      fn: HandlerFunction
+    }
+  }
+}
+```
+
+## Available Routes
+
+### customer
+
+Retrieves basic customer information from Stripe.
+
+<ParamField path="customer" type="object">
+  <ParamField path="GET" type="object">
+    <ParamField path="schema" type="z.undefined()">
+      Validates empty/undefined request body using `blankSchema`
+    </ParamField>
+    <ParamField path="fn" type="function">
+      Function: `getCustomerInfo(body, customerId)`
+      
+      Returns a Stripe Customer object
+    </ParamField>
+  </ParamField>
+</ParamField>
+
+**Handler Function:**
+```typescript
+async function getCustomerInfo(
+  body: z.infer<typeof blankSchema>, 
+  customerId: string
+)
+```
+
+**Returns:** `Stripe.Customer` object or throws an error if customer not found or deleted.
+
+---
+
+### invoices
+
+Retrieves all invoices for a specific customer.
+
+<ParamField path="invoices" type="object">
+  <ParamField path="GET" type="object">
+    <ParamField path="schema" type="z.undefined()">
+      Validates empty/undefined request body using `blankSchema`
+    </ParamField>
+    <ParamField path="fn" type="function">
+      Function: `getCustomerInvoices(body, customerId)`
+      
+      Returns an array of Stripe Invoice objects
+    </ParamField>
+  </ParamField>
+</ParamField>
+
+**Handler Function:**
+```typescript
+async function getCustomerInvoices(
+  body: z.infer<typeof blankSchema>, 
+  customerId: string
+)
+```
+
+**Returns:** `Stripe.Invoice[]` - Array of invoice objects for the customer.
+
+---
+
+### charges
+
+Retrieves all charges/payments for a specific customer.
+
+<ParamField path="charges" type="object">
+  <ParamField path="GET" type="object">
+    <ParamField path="schema" type="z.undefined()">
+      Validates empty/undefined request body using `blankSchema`
+    </ParamField>
+    <ParamField path="fn" type="function">
+      Function: `getCustomerPayments(body, customerId)`
+      
+      Returns an array of Stripe Charge objects
+    </ParamField>
+  </ParamField>
+</ParamField>
+
+**Handler Function:**
+```typescript
+async function getCustomerPayments(
+  body: z.infer<typeof blankSchema>, 
+  customerId: string
+)
+```
+
+**Returns:** `Stripe.Charge[]` - Array of charge objects for the customer.
+
+---
+
+### subscriptions
+
+Retrieves all subscriptions for a specific customer.
+
+<ParamField path="subscriptions" type="object">
+  <ParamField path="GET" type="object">
+    <ParamField path="schema" type="z.undefined()">
+      Validates empty/undefined request body using `blankSchema`
+    </ParamField>
+    <ParamField path="fn" type="function">
+      Function: `getCustomerSubscriptions(body, customerId)`
+      
+      Returns an array of Stripe Subscription objects
+    </ParamField>
+  </ParamField>
+</ParamField>
+
+**Handler Function:**
+```typescript
+async function getCustomerSubscriptions(
+  body: z.infer<typeof blankSchema>, 
+  customerId: string
+)
+```
+
+**Returns:** `Stripe.Subscription[]` - Array of subscription objects for the customer.
+
+---
+
+### customer-update
+
+Updates customer information in Stripe.
+
+<ParamField path="customer-update" type="object">
+  <ParamField path="POST" type="object">
+    <ParamField path="schema" type="customerSchema">
+      Validates request body against `customerSchema` with customer update fields
+    </ParamField>
+    <ParamField path="fn" type="function">
+      Function: `updateCustomer(body, customerId)`
+      
+      Updates and returns the modified Stripe Customer object
+    </ParamField>
+  </ParamField>
+</ParamField>
+
+**Handler Function:**
+```typescript
+export async function updateCustomer(
+  body: z.infer<typeof customerSchema>,
+  customerId: string
+)
+```
+
+See [updateCustomer](/api/update-customer) for detailed documentation.
+
+---
+
+## Schema Types
+
+### blankSchema
+
+Used for GET requests that don't require a request body:
+
+```typescript
+export const blankSchema = z.undefined()
+```
+
+### customerSchema
+
+Used for customer update requests:
+
+```typescript
+export const customerSchema = z.object({
+  address: z.object({
+    city: z.string().nullable(),
+    country: z.string().nullable(),
+    line1: z.string().nullable(),
+    line2: z.string().nullable(),
+    postal_code: z.string().nullable(),
+    state: z.string().nullable(),
+  }),
+  name: z.string().nullable(),
+  email: z.string().email().nullable(),
+  currency: z.string().toLowerCase(),
+});
+```
+
+## Usage Example
+
+```typescript
+import { handlers } from './lib/stripe-ui-kit';
+
+// Access a specific handler
+const customerHandler = handlers.customer.GET;
+
+// Use the schema for validation
+const validatedBody = customerHandler.schema.parse(requestBody);
+
+// Call the handler function
+const customer = await customerHandler.fn(validatedBody, 'cus_123456');
+```
+
+## Source Code
+
+```typescript
+export const handlers = {
+  "customer": {
+    GET: {
+      schema: blankSchema,
+      fn: getCustomerInfo
+    },
+  },
+  "invoices": {
+    GET: {
+      schema: blankSchema,
+      fn: getCustomerInvoices
+    },
+  },
+  "charges": {
+    GET: {
+      schema: blankSchema,
+      fn: getCustomerPayments
+    },
+  },
+  "subscriptions": {
+    GET: {
+      schema: blankSchema,
+      fn: getCustomerSubscriptions
+    },
+  },
+  "customer-update": {
+    POST: {
+      schema: customerSchema,
+      fn: updateCustomer
+    },
+  },
+};
+```
+
+<Note>
+All handler functions are server-side only and require the `STRIPE_SECRET_KEY` environment variable to be set.
+</Note>

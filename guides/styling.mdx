@@ -1,0 +1,386 @@
+---
+title: Customizing Styles
+description: Learn how to customize the appearance of Stripe UI Kit components using ShadCN UI, Tailwind CSS, and component composition
+---
+
+The Stripe UI Kit is built on top of **ShadCN UI** and **Tailwind CSS v4**, giving you complete control over styling through utility classes, CSS variables, and component customization.
+
+## Component Structure
+
+All Stripe UI Kit components follow the ShadCN UI pattern with composable sub-components:
+
+```tsx
+<Card>
+  <CardHeader>
+    <CardTitle>Customer</CardTitle>
+  </CardHeader>
+  <CardContent>
+    {/* Component content */}
+  </CardContent>
+</Card>
+```
+
+Each sub-component accepts a `className` prop for custom styling.
+
+## Styling Methods
+
+### 1. Using Tailwind Utility Classes
+
+The most common way to customize styles is by passing Tailwind classes via the `className` prop:
+
+```tsx
+<Card className="shadow-lg border-2">
+  <CardHeader className="bg-muted">
+    <CardTitle className="text-2xl font-bold">Customer Payments</CardTitle>
+  </CardHeader>
+  <CardContent className="space-y-4">
+    {/* Content */}
+  </CardContent>
+</Card>
+```
+
+#### Common Patterns
+
+**Layout & Spacing**
+```tsx
+// Grid layouts (from customer.tsx:81,126,157)
+<div className="grid grid-cols-2 gap-4">
+  <FormField name="name" {...} />
+  <FormField name="email" {...} />
+</div>
+
+<div className="grid grid-cols-3 gap-4">
+  <FormField name="city" {...} />
+  <FormField name="state" {...} />
+  <FormField name="postal_code" {...} />
+</div>
+
+// Vertical spacing (from customer.tsx:79)
+<form className="space-y-6">
+  {/* Form fields */}
+</form>
+```
+
+**Interactive States**
+```tsx
+// Hover effects (from subscriptions.tsx:87)
+<TableRow className="hover:bg-muted/50">
+  {/* Table cells */}
+</TableRow>
+```
+
+**Typography**
+```tsx
+// Font variants (from subscriptions.tsx:90-91)
+<TableCell className="font-mono text-xs">
+  {planLabel}
+</TableCell>
+
+<TableCell className="text-center capitalize">
+  {interval}
+</TableCell>
+```
+
+### 2. Customizing Theme Colors
+
+The UI Kit uses CSS custom properties defined in `globals.css`. Modify these in your own stylesheet:
+
+```css
+:root {
+  --radius: 0.625rem;
+  --primary: oklch(0.21 0.006 285.885);
+  --primary-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.92 0.004 286.32);
+  /* ... other variables */
+}
+
+.dark {
+  --primary: oklch(0.92 0.004 286.32);
+  --destructive: oklch(0.704 0.191 22.216);
+  /* ... dark mode overrides */
+}
+```
+
+<Note>
+Colors use the OKLCH color space for better perceptual uniformity. Use tools like [OKLCH Color Picker](https://oklch.com/) to generate values.
+</Note>
+
+### 3. Using the `cn()` Utility
+
+All ShadCN components use the `cn()` helper from `~/lib/utils.ts` to merge class names properly:
+
+```tsx
+import { cn } from "~/lib/utils";
+
+function CustomCard({ className, ...props }) {
+  return (
+    <Card
+      className={cn(
+        "shadow-lg border-2", // base styles
+        className // allow overrides
+      )}
+      {...props}
+    />
+  );
+}
+```
+
+The `cn()` function combines `clsx` and `tailwind-merge` to intelligently merge conflicting classes.
+
+## Customizing UI Components
+
+### Modifying Existing Components
+
+ShadCN UI components live in `~/components/ui/`. You can edit them directly:
+
+**Example: Adding a new Button variant**
+
+```tsx
+// ~/components/ui/button.tsx
+const buttonVariants = cva(
+  "inline-flex items-center...",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        destructive: "bg-destructive text-white hover:bg-destructive/90",
+        outline: "border bg-background hover:border-primary/50",
+        // Add your custom variant
+        success: "bg-green-600 text-white hover:bg-green-700",
+      },
+      // ...
+    }
+  }
+)
+```
+
+Usage:
+```tsx
+<Button variant="success">Save Customer</Button>
+```
+
+### Component Data Attributes
+
+All components have `data-slot` attributes for precise CSS targeting:
+
+```css
+/* Target specific component parts */
+[data-slot="card"] {
+  border-radius: 1rem;
+}
+
+[data-slot="card-header"] {
+  padding: 2rem;
+}
+
+[data-slot="button"] {
+  text-transform: uppercase;
+}
+```
+
+## Styling Stripe Components
+
+### Badge Variants for Status
+
+The UI Kit uses Badge components with dynamic variants based on status:
+
+```tsx
+// From payments.tsx:78-81
+let badgeVariant: "default" | "secondary" | "destructive" = "secondary";
+if (sub.status === "active") badgeVariant = "default";
+else if (sub.status === "canceled") badgeVariant = "destructive";
+
+<Badge variant={badgeVariant}>{sub.status}</Badge>
+```
+
+**Custom Status Colors**
+
+```tsx
+// Create custom badge logic
+function getPaymentBadge(status: string) {
+  const variants = {
+    succeeded: "default",
+    pending: "secondary",
+    failed: "destructive",
+  };
+  
+  return (
+    <Badge 
+      variant={variants[status] || "secondary"}
+      className="uppercase"
+    >
+      {status}
+    </Badge>
+  );
+}
+```
+
+### Table Styling
+
+Customize table appearance with Tailwind classes:
+
+```tsx
+<Table>
+  <TableHeader>
+    <TableRow className="border-b-2">
+      <TableHead className="text-left font-bold">Date</TableHead>
+      <TableHead className="text-right">Amount</TableHead>
+    </TableRow>
+  </TableHeader>
+  <TableBody>
+    <TableRow className="hover:bg-accent/50 transition-colors">
+      <TableCell className="font-medium">...</TableCell>
+    </TableRow>
+  </TableBody>
+</Table>
+```
+
+## Responsive Design
+
+### Mobile-First Breakpoints
+
+```tsx
+<Card className="p-4 md:p-6 lg:p-8">
+  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    {/* Responsive grid */}
+  </div>
+</Card>
+```
+
+### Container Queries
+
+The Card component supports container queries:
+
+```tsx
+// From card.tsx:23
+<CardHeader className="@container/card-header grid auto-rows-min">
+  {/* Container-aware layout */}
+</CardHeader>
+```
+
+Use with `@` prefix utilities:
+```tsx
+<div className="@lg:grid-cols-2 @xl:grid-cols-3">
+  {/* Adjusts based on container width */}
+</div>
+```
+
+## Dark Mode Support
+
+Dark mode is automatically handled via the `.dark` class on a parent element:
+
+```tsx
+// Explicit dark mode utilities
+<Card className="bg-white dark:bg-slate-900">
+  <p className="text-slate-900 dark:text-slate-100">
+    Auto-adapting text
+  </p>
+</Card>
+```
+
+<Warning>
+The UI Kit uses the custom variant `@custom-variant dark (&:is(.dark *));` which means dark mode is activated when any parent has the `.dark` class, not just `:root`.
+</Warning>
+
+## Loading States
+
+Customize loading states from the default pattern:
+
+```tsx
+// From customer.tsx:68
+if (isLoading) return <div>Loading...</div>;
+
+// Enhanced version
+if (isLoading) {
+  return (
+    <Card className="animate-pulse">
+      <CardContent className="h-64 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-2">
+          <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+          <p className="text-muted-foreground">Loading customer data...</p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Best Practices
+
+<Steps>
+  <Step title="Start with base components">
+    Use the existing Card, Table, Badge, and Button components as-is before customizing.
+  </Step>
+  
+  <Step title="Use Tailwind utilities first">
+    Leverage Tailwind's utility classes via `className` props before writing custom CSS.
+  </Step>
+  
+  <Step title="Modify CSS variables for global changes">
+    Update theme colors in your globals.css to maintain consistency across all components.
+  </Step>
+  
+  <Step title="Edit UI components for new variants">
+    When you need new variants (like button styles), edit the component files in `~/components/ui/`.
+  </Step>
+  
+  <Step title="Use data-slot for precise targeting">
+    Target specific component parts with `[data-slot="..."]` selectors when needed.
+  </Step>
+</Steps>
+
+<Note>
+All Stripe UI Kit components are **fully editable**. You own the code, so customize freely without worrying about breaking updates.
+</Note>
+
+## Examples
+
+### Customizing the Customer Card
+
+```tsx
+import { CustomerCard } from "~/components/stripe-ui-kit/customer";
+
+// Wrap and customize
+export function BrandedCustomerCard() {
+  return (
+    <div className="max-w-2xl mx-auto p-6">
+      <style jsx global>{`
+        [data-slot="card"] {
+          border: 2px solid oklch(var(--primary));
+          box-shadow: 0 4px 12px oklch(var(--primary) / 0.1);
+        }
+      `}</style>
+      <CustomerCard />
+    </div>
+  );
+}
+```
+
+### Creating a Branded Badge Component
+
+```tsx
+import { Badge } from "~/components/ui/badge";
+import { cn } from "~/lib/utils";
+
+type Status = "active" | "inactive" | "pending";
+
+interface StatusBadgeProps {
+  status: Status;
+  className?: string;
+}
+
+export function StatusBadge({ status, className }: StatusBadgeProps) {
+  const variants = {
+    active: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100",
+    inactive: "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-100",
+    pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100",
+  };
+
+  return (
+    <Badge className={cn(variants[status], "font-semibold", className)}>
+      {status}
+    </Badge>
+  );
+}
+```

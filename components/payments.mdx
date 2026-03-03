@@ -1,0 +1,215 @@
+---
+title: CustomerPayments
+description: A table component that displays a customer's payment history from Stripe with transaction details and receipt links.
+---
+
+## Overview
+
+The `CustomerPayments` component displays a customer's charge history from Stripe in a comprehensive table format. It shows payment details including date, amount, card information, status, and receipt links.
+
+## Features
+
+- Fetches customer charges from Stripe
+- Displays payment date, amount, and card details
+- Payment status badges with visual indicators
+- Links to payment receipts
+- Currency formatting
+- Card brand and last 4 digits display
+- Loading and error states
+- Empty state when no payments exist
+
+## Import
+
+```tsx
+import { CustomerPayments } from "~/components/stripe-ui-kit/payments";
+```
+
+## Usage
+
+```tsx
+export default function PaymentsPage() {
+  return (
+    <div className="container mx-auto p-6">
+      <CustomerPayments />
+    </div>
+  );
+}
+```
+
+## API Endpoint
+
+### GET `/api/stripe-ui-kit/charges`
+
+Fetches all charges for the current customer. Returns an array of charge objects validated against `chargeSchema`.
+
+**Response Format:**
+
+```typescript
+[
+  {
+    id: string;
+    created: number; // Unix timestamp
+    amount: number; // Amount in cents
+    currency: string;
+    status: string; // "succeeded", "pending", "failed"
+    receipt_url: string | null;
+    payment_method_details: {
+      card: {
+        brand: string; // "visa", "mastercard", etc.
+        last4: string; // Last 4 digits
+      } | null;
+    } | null;
+  }
+]
+```
+
+## Table Columns
+
+The component displays the following columns:
+
+| Column | Description |
+|--------|-------------|
+| **Date** | Payment date (formatted as locale date) |
+| **Amount** | Charge amount formatted as currency |
+| **Card** | Card brand and last 4 digits (e.g., "VISA •••• 4242") |
+| **Status** | Badge showing payment status |
+| **Receipt** | "View" link to payment receipt |
+
+## Status Badges
+
+- **Succeeded payments**: Default badge variant (typically blue/primary color)
+- **Other statuses**: Secondary badge variant (typically gray)
+
+## Code Example
+
+```tsx
+"use client";
+
+import { CustomerPayments } from "~/components/stripe-ui-kit/payments";
+
+export default function BillingPage() {
+  return (
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold">Payment History</h1>
+      <CustomerPayments />
+    </div>
+  );
+}
+```
+
+## Data Formatting
+
+### Date Formatting
+
+```typescript
+new Date(charge.created * 1000).toLocaleDateString()
+```
+
+Converts Unix timestamp to locale-specific date string.
+
+### Currency Formatting
+
+```typescript
+(charge.amount / 100).toLocaleString(undefined, {
+  style: "currency",
+  currency: charge.currency.toUpperCase(),
+})
+```
+
+Converts cents to dollars/euros and formats with currency symbol.
+
+### Card Display
+
+```typescript
+charge.payment_method_details?.card?.brand
+  ? `${charge.payment_method_details.card.brand.toUpperCase()} •••• ${charge.payment_method_details.card.last4}`
+  : "—"
+```
+
+Displays card brand (uppercase) and last 4 digits with bullet points for privacy.
+
+## States
+
+### Loading State
+
+```tsx
+<div>Loading payments...</div>
+```
+
+### Error State
+
+```tsx
+<div>Failed to load payments</div>
+```
+
+### Empty State
+
+```tsx
+<Card>
+  <CardHeader>
+    <CardTitle>No Payments Found</CardTitle>
+  </CardHeader>
+</Card>
+```
+
+## React Query Integration
+
+- **Query Key**: `["charges"]`
+- **Validation**: Uses Zod `chargeArraySchema` for runtime type safety
+- Automatically refetches on window focus and network reconnection
+
+## Full Component Example
+
+```tsx
+import { useQuery } from "@tanstack/react-query";
+import { Badge } from "~/components/ui/badge";
+import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "~/components/ui/table";
+import { chargeSchema } from "~/lib/stripe-ui-types";
+import { z } from "zod";
+
+const chargeArraySchema = z.array(chargeSchema);
+
+export function CustomerPayments() {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["charges"],
+    queryFn: async () => {
+      const res = await fetch("/api/stripe-ui-kit/charges");
+      if (!res.ok) throw new Error("Failed to fetch charges");
+      const json = await res.json();
+      return chargeArraySchema.parse(json);
+    },
+  });
+
+  if (isLoading) return <div>Loading payments...</div>;
+  if (error) return <div>Failed to load payments</div>;
+  if (!data?.length) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>No Payments Found</CardTitle>
+        </CardHeader>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Customer Payments</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          {/* Table content */}
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
+```
+
+## Common Payment Statuses
+
+- `succeeded` - Payment completed successfully
+- `pending` - Payment is processing
+- `failed` - Payment failed

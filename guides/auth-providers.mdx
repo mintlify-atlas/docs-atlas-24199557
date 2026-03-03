@@ -1,0 +1,559 @@
+---
+title: Authentication Integration
+description: Integrate the Stripe UI Kit with Clerk, NextAuth, custom JWT, or any authentication provider
+---
+
+The Stripe UI Kit requires authentication to link users to their Stripe customer IDs. This guide shows how to integrate with popular auth providers.
+
+## How Authentication Works
+
+The UI Kit uses a single `auth()` function in the API route handler to retrieve the authenticated user's Stripe customer ID:
+
+```ts
+// From ~/app/api/stripe-ui-kit/[route]/route.ts:16-35
+async function auth(req: NextRequest): Promise<string | null> {
+  // Must return the Stripe customerId of the logged-in user
+  
+  // Example: Your auth logic here
+  const authHeader = req.headers.get("authorization");
+  
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return null;
+  }
+  
+  const token = authHeader.split(" ")[1];
+  
+  // Verify token and return customer ID
+  return "cus_XXXXX";
+}
+```
+
+**Key Requirements:**
+- Return the **Stripe customer ID** (e.g., `"cus_S9KoQJg6Cy8ydG"`)
+- Return `null` if the user is not authenticated
+- The function receives the `NextRequest` object for accessing headers, cookies, etc.
+
+<Note>
+The `auth()` function is called for **every API request** to Stripe UI Kit endpoints. Make sure your implementation is performant.
+</Note>
+
+## Integration Examples
+
+<Tabs>
+  <Tab title="Clerk">
+    ### Using Clerk
+
+    [Clerk](https://clerk.com) provides seamless Next.js authentication with built-in session management.
+
+    <Steps>
+      <Step title="Install Clerk">
+        ```bash
+        npm install @clerk/nextjs
+        ```
+      </Step>
+
+      <Step title="Set up Clerk environment variables">
+        ```env
+        NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_xxx
+        CLERK_SECRET_KEY=sk_test_xxx
+        ```
+      </Step>
+
+      <Step title="Update the auth function">
+        ```ts
+        // ~/app/api/stripe-ui-kit/[route]/route.ts
+        import { auth as clerkAuth } from '@clerk/nextjs/server';
+        import { NextRequest } from 'next/server';
+
+        async function auth(req: NextRequest): Promise<string | null> {
+          const { userId } = await clerkAuth();
+          
+          if (!userId) {
+            return null;
+          }
+          
+          // Option 1: Store Stripe customer ID in Clerk metadata
+          const clerkClient = await import('@clerk/nextjs/server').then(m => m.clerkClient);
+          const user = await clerkClient.users.getUser(userId);
+          const stripeCustomerId = user.publicMetadata.stripeCustomerId as string;
+          
+          if (!stripeCustomerId) {
+            throw new Error('No Stripe customer ID found for user');
+          }
+          
+          return stripeCustomerId;
+        }
+        ```
+      </Step>
+
+      <Step title="Create Stripe customer on signup">
+        ```ts
+        // ~/app/api/webhooks/clerk/route.ts
+        import { Webhook } from 'svix';
+        import { headers } from 'next/headers';
+        import Stripe from 'stripe';
+        import { clerkClient } from '@clerk/nextjs/server';
+
+        const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+
+        export async function POST(req: Request) {
+          const WEBHOOK_SECRET = process.env.CLERK_WEBHOOK_SECRET!;
+          const headerPayload = await headers();
+          const svix_id = headerPayload.get('svix-id');
+          const svix_timestamp = headerPayload.get('svix-timestamp');
+          const svix_signature = headerPayload.get('svix-signature');
+
+          if (!svix_id || !svix_timestamp || !svix_signature) {
+            return new Response('Error: Missing svix headers', { status: 400 });
+          }
+
+          const payload = await req.json();
+          const body = JSON.stringify(payload);
+          const wh = new Webhook(WEBHOOK_SECRET);
+          
+          let evt;
+          try {
+            evt = wh.verify(body, {
+              'svix-id': svix_id,
+              'svix-timestamp': svix_timestamp,
+              'svix-signature': svix_signature,
+            });
+          } catch (err) {
+            return new Response('Error: Verification failed', { status: 400 });
+          }
+
+          const { id, email_addresses, first_name, last_name } = evt.data;
+          const eventType = evt.type;
+
+          if (eventType === 'user.created') {
+            // Create Stripe customer
+            const customer = await stripe.customers.create({
+              email: email_addresses[0].email_address,
+              name: `${first_name} ${last_name}`,
+              metadata: {
+                clerkUserId: id,
+              },
+            });
+
+            // Store customer ID in Clerk
+            await clerkClient.users.updateUserMetadata(id, {
+              publicMetadata: {
+                stripeCustomerId: customer.id,
+              },
+            });
+          }
+
+          return new Response('Webhook processed', { status: 200 });
+        }
+        ```
+      </Step>
+    </Steps>
+
+    <Note>
+    Store the Stripe customer ID in Clerk's `publicMetadata` for easy client-side access, or in `privateMetadata` for server-only access.
+    </Note>
+  </Tab>
+
+  <Tab title="NextAuth">
+    ### Using NextAuth (Auth.js)
+
+    [NextAuth](https://next-auth.js.org/) (now Auth.js) is a flexible authentication solution for Next.js.
+
+    <Steps>
+      <Step title="Install NextAuth">
+        ```bash
+        npm install next-auth
+        ```
+      </Step>
+
+      <Step title="Configure NextAuth with Stripe customer ID">
+        ```ts
+        // ~/auth.ts
+        import NextAuth from "next-auth";
+        import type { DefaultSession } from "next-auth";
+        import GoogleProvider from "next-auth/providers/google";
+
+        declare module "next-auth" {
+          interface Session {
+            user: {
+              stripeCustomerId?: string;
+            } & DefaultSession["user"];
+          }
+        }
+
+        export const { handlers, auth: nextAuth, signIn, signOut } = NextAuth({
+          providers: [
+            GoogleProvider({
+              clientId: process.env.GOOGLE_CLIENT_ID!,
+              clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+            }),
+          ],
+          callbacks: {
+            async session({ session, token }) {
+              if (session.user) {
+                session.user.stripeCustomerId = token.stripeCustomerId as string;
+              }
+              return session;
+            },
+            async jwt({ token, user, account }) {
+              if (account && user) {
+                // Fetch or create Stripe customer
+                const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+                
+                // Check if customer exists
+                const customers = await stripe.customers.list({
+                  email: user.email!,
+                  limit: 1,
+                });
+                
+                let customerId;
+                if (customers.data.length > 0) {
+                  customerId = customers.data[0].id;
+                } else {
+                  // Create new customer
+                  const customer = await stripe.customers.create({
+                    email: user.email!,
+                    name: user.name || undefined,
+                  });
+                  customerId = customer.id;
+                }
+                
+                token.stripeCustomerId = customerId;
+              }
+              return token;
+            },
+          },
+        });
+        ```
+      </Step>
+
+      <Step title="Update the auth function">
+        ```ts
+        // ~/app/api/stripe-ui-kit/[route]/route.ts
+        import { nextAuth } from "~/auth";
+        import { NextRequest } from "next/server";
+
+        async function auth(req: NextRequest): Promise<string | null> {
+          const session = await nextAuth();
+          
+          if (!session?.user?.stripeCustomerId) {
+            return null;
+          }
+          
+          return session.user.stripeCustomerId;
+        }
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+
+  <Tab title="Custom JWT">
+    ### Using Custom JWT Tokens
+
+    If you have a custom authentication system with JWT tokens:
+
+    <Steps>
+      <Step title="Install JWT library">
+        ```bash
+        npm install jsonwebtoken @types/jsonwebtoken
+        ```
+      </Step>
+
+      <Step title="Implement JWT verification">
+        ```ts
+        // ~/app/api/stripe-ui-kit/[route]/route.ts
+        import { NextRequest } from 'next/server';
+        import jwt from 'jsonwebtoken';
+
+        interface JWTPayload {
+          userId: string;
+          stripeCustomerId: string;
+          email: string;
+        }
+
+        async function auth(req: NextRequest): Promise<string | null> {
+          const authHeader = req.headers.get('authorization');
+          
+          if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            return null;
+          }
+          
+          const token = authHeader.split(' ')[1];
+          
+          try {
+            const decoded = jwt.verify(
+              token,
+              process.env.JWT_SECRET!
+            ) as JWTPayload;
+            
+            return decoded.stripeCustomerId;
+          } catch (error) {
+            console.error('JWT verification failed:', error);
+            return null;
+          }
+        }
+        ```
+      </Step>
+
+      <Step title="Include JWT in client requests">
+        ```tsx
+        // Client-side component
+        import { useQuery } from '@tanstack/react-query';
+
+        export function CustomerPayments() {
+          const { data, isLoading } = useQuery({
+            queryKey: ['charges'],
+            queryFn: async () => {
+              const token = localStorage.getItem('authToken');
+              
+              const res = await fetch('/api/stripe-ui-kit/charges', {
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                },
+              });
+              
+              if (!res.ok) throw new Error('Failed to fetch charges');
+              return res.json();
+            },
+          });
+          
+          // ... rest of component
+        }
+        ```
+      </Step>
+    </Steps>
+
+    <Warning>
+    Always validate JWT signatures using a secure secret. Never trust client-provided tokens without verification.
+    </Warning>
+  </Tab>
+
+  <Tab title="Session Cookies">
+    ### Using Session Cookies
+
+    For traditional session-based authentication:
+
+    <Steps>
+      <Step title="Set up session middleware">
+        ```ts
+        // ~/lib/session.ts
+        import { cookies } from 'next/headers';
+        import { SignJWT, jwtVerify } from 'jose';
+
+        const SECRET_KEY = new TextEncoder().encode(process.env.SESSION_SECRET!);
+
+        export async function createSession(userId: string, stripeCustomerId: string) {
+          const token = await new SignJWT({ userId, stripeCustomerId })
+            .setProtectedHeader({ alg: 'HS256' })
+            .setExpirationTime('7d')
+            .sign(SECRET_KEY);
+          
+          const cookieStore = await cookies();
+          cookieStore.set('session', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            maxAge: 60 * 60 * 24 * 7, // 7 days
+            path: '/',
+          });
+        }
+
+        export async function getSession() {
+          const cookieStore = await cookies();
+          const session = cookieStore.get('session');
+          
+          if (!session) return null;
+          
+          try {
+            const { payload } = await jwtVerify(session.value, SECRET_KEY);
+            return payload as { userId: string; stripeCustomerId: string };
+          } catch {
+            return null;
+          }
+        }
+        ```
+      </Step>
+
+      <Step title="Update the auth function">
+        ```ts
+        // ~/app/api/stripe-ui-kit/[route]/route.ts
+        import { getSession } from '~/lib/session';
+        import { NextRequest } from 'next/server';
+
+        async function auth(req: NextRequest): Promise<string | null> {
+          const session = await getSession();
+          
+          if (!session?.stripeCustomerId) {
+            return null;
+          }
+          
+          return session.stripeCustomerId;
+        }
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+</Tabs>
+
+## Handling Unauthorized Requests
+
+The route handler returns a 401 response when `auth()` returns `null`:
+
+```ts
+// From ~/app/api/stripe-ui-kit/[route]/route.ts:47-50
+const customerId = await auth(req);
+if (!customerId) {
+  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+}
+```
+
+### Client-Side Error Handling
+
+Handle 401 errors in your components:
+
+```tsx
+import { useQuery } from '@tanstack/react-query';
+import { useRouter } from 'next/navigation';
+
+export function CustomerPayments() {
+  const router = useRouter();
+  
+  const { data, error } = useQuery({
+    queryKey: ['charges'],
+    queryFn: async () => {
+      const res = await fetch('/api/stripe-ui-kit/charges');
+      
+      if (res.status === 401) {
+        router.push('/login');
+        throw new Error('Unauthorized');
+      }
+      
+      if (!res.ok) throw new Error('Failed to fetch charges');
+      return res.json();
+    },
+  });
+  
+  if (error?.message === 'Unauthorized') {
+    return <div>Redirecting to login...</div>;
+  }
+  
+  // ... rest of component
+}
+```
+
+## Database Mapping Strategy
+
+Store the Stripe customer ID in your database for efficient lookups:
+
+### Schema Example
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY,
+  email VARCHAR(255) UNIQUE NOT NULL,
+  stripe_customer_id VARCHAR(255) UNIQUE,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_stripe_customer_id ON users(stripe_customer_id);
+```
+
+### Auth Implementation with Database
+
+```ts
+import { NextRequest } from 'next/server';
+import { db } from '~/lib/db'; // Your database client
+
+async function auth(req: NextRequest): Promise<string | null> {
+  // Get user ID from your auth system
+  const userId = await getCurrentUserId(req);
+  
+  if (!userId) return null;
+  
+  // Fetch Stripe customer ID from database
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { stripeCustomerId: true },
+  });
+  
+  return user?.stripeCustomerId ?? null;
+}
+```
+
+## Testing Authentication
+
+### Mock Authentication for Development
+
+```ts
+// ~/app/api/stripe-ui-kit/[route]/route.ts
+async function auth(req: NextRequest): Promise<string | null> {
+  // Development mode: bypass auth
+  if (process.env.NODE_ENV === 'development') {
+    return process.env.DEV_STRIPE_CUSTOMER_ID ?? null;
+  }
+  
+  // Production auth logic
+  // ...
+}
+```
+
+```env
+# .env.local
+DEV_STRIPE_CUSTOMER_ID=cus_S9KoQJg6Cy8ydG
+```
+
+<Warning>
+**Never deploy mock authentication to production.** Always use proper authentication in production environments.
+</Warning>
+
+## Best Practices
+
+<Steps>
+  <Step title="Store customer IDs securely">
+    Keep Stripe customer IDs in your database or auth provider's secure storage (like Clerk metadata).
+  </Step>
+  
+  <Step title="Create customers on signup">
+    Automatically create Stripe customers when users sign up to ensure every user has a customer ID.
+  </Step>
+  
+  <Step title="Handle missing customer IDs gracefully">
+    If a user doesn't have a customer ID, either create one on-the-fly or return an appropriate error.
+  </Step>
+  
+  <Step title="Use secure tokens">
+    Always verify JWTs, session tokens, or cookies with proper secrets. Never trust client input.
+  </Step>
+  
+  <Step title="Implement proper error handling">
+    Return 401 for unauthorized requests and handle them gracefully in the UI (e.g., redirect to login).
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+### "Unauthorized" errors
+
+**Cause:** The `auth()` function is returning `null`.
+
+**Solutions:**
+- Verify your auth provider is properly configured
+- Check that cookies/headers are being sent with requests
+- Ensure the Stripe customer ID exists in your database/auth metadata
+
+### Missing customer data
+
+**Cause:** The customer ID doesn't exist in Stripe.
+
+**Solutions:**
+- Verify the customer ID is correct in your database
+- Check that customers are being created on user signup
+- Use the Stripe Dashboard to verify the customer exists
+
+### Token verification failures
+
+**Cause:** JWT signature mismatch or expired tokens.
+
+**Solutions:**
+- Ensure `JWT_SECRET` matches between token creation and verification
+- Check token expiration times
+- Verify the token is being sent correctly in headers

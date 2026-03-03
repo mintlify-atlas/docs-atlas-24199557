@@ -1,80 +1,271 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get started with the Stripe UI Kit in 5 minutes
 ---
 
-## Get started in three steps
+This guide will help you set up the Stripe UI Kit and display customer data in your Next.js app.
 
-Get your documentation site running locally and make your first customization.
+<Steps>
 
-### Step 1: Set up your local environment
+<Step title="Install dependencies">
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+Install the required packages:
 
-### Step 2: Deploy your changes
+<CodeGroup>
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+```bash npm
+npm install @tanstack/react-query stripe zod react-hook-form @hookform/resolvers
+```
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+```bash yarn
+yarn add @tanstack/react-query stripe zod react-hook-form @hookform/resolvers
+```
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+```bash pnpm
+pnpm add @tanstack/react-query stripe zod react-hook-form @hookform/resolvers
+```
 
-### Step 3: Go live
+</CodeGroup>
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+And install ShadCN UI components:
+
+```bash
+npx shadcn@latest add card table badge button form input label
+```
+
+</Step>
+
+<Step title="Copy files">
+
+Copy the following files from the [source repository](https://github.com/stripe/stripe-ui-kit) to your project:
+
+**Library files** (`src/lib/`):
+- `stripe-ui-kit.ts`
+- `stripe-ui-types.ts`
+
+**Components** (`src/components/stripe-ui-kit/`):
+- `customer.tsx`
+- `invoices.tsx`
+- `payments.tsx`
+- `subscriptions.tsx`
+
+**API route** (`src/app/api/stripe-ui-kit/[route]/route.ts`):
+- `route.ts`
+
+See the [installation guide](/installation) for the complete file structure.
+
+</Step>
+
+<Step title="Configure authentication">
+
+The most important step is configuring the `auth` function in your API route. This function determines which Stripe customer ID to retrieve based on the logged-in user.
+
+<Warning>
+  For security, **never pass the customer ID from the frontend**. Always determine it server-side based on the authenticated user.
+</Warning>
+
+Open `src/app/api/stripe-ui-kit/[route]/route.ts` and update the `auth` function:
+
+```typescript src/app/api/stripe-ui-kit/[route]/route.ts
+// Must return the Stripe customerId of the logged-in user
+async function auth(req: NextRequest): Promise<string | null> {
+  // Example with Clerk
+  const { userId } = await getAuth(req);
+  
+  if (!userId) {
+    return null;
+  }
+  
+  // Look up the Stripe customer ID from your database
+  const user = await db.user.findUnique({ where: { id: userId } });
+  
+  return user?.stripeCustomerId ?? null;
+}
+```
+
+### Example implementations
+
+<CodeGroup>
+
+```typescript Clerk
+import { getAuth } from "@clerk/nextjs/server";
+
+async function auth(req: NextRequest): Promise<string | null> {
+  const { userId } = await getAuth(req);
+  
+  if (!userId) {
+    return null;
+  }
+  
+  // Get customer ID from user metadata or database
+  const user = await clerkClient.users.getUser(userId);
+  return user.publicMetadata.stripeCustomerId as string ?? null;
+}
+```
+
+```typescript NextAuth
+import { getServerSession } from "next-auth";
+import { authOptions } from "~/lib/auth";
+
+async function auth(req: NextRequest): Promise<string | null> {
+  const session = await getServerSession(authOptions);
+  
+  if (!session?.user?.email) {
+    return null;
+  }
+  
+  // Look up customer ID from your database
+  const user = await db.user.findUnique({
+    where: { email: session.user.email }
+  });
+  
+  return user?.stripeCustomerId ?? null;
+}
+```
+
+```typescript Custom JWT
+async function auth(req: NextRequest): Promise<string | null> {
+  const authHeader = req.headers.get("authorization");
+  
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return null;
+  }
+  
+  const token = authHeader.split(" ")[1];
+  const payload = await verifyJWT(token);
+  
+  if (!payload?.userId) {
+    return null;
+  }
+  
+  // Look up customer ID from your database
+  const user = await db.user.findUnique({ where: { id: payload.userId } });
+  return user?.stripeCustomerId ?? null;
+}
+```
+
+</CodeGroup>
+
+### Best practices
+
+- Store the Stripe customer ID in your database alongside user data
+- Always verify authentication before returning a customer ID
+- Return `null` if the user is not authenticated
+- Never trust customer IDs sent from the client
+
+</Step>
+
+<Step title="Add components to your page">
+
+Now you can use the Stripe UI Kit components in any page. Here's a complete example:
+
+```tsx src/app/dashboard/page.tsx
+import { CustomerCard } from "~/components/stripe-ui-kit/customer";
+import { CustomerInvoices } from "~/components/stripe-ui-kit/invoices";
+import { CustomerPayments } from "~/components/stripe-ui-kit/payments";
+import { CustomerSubscriptions } from "~/components/stripe-ui-kit/subscriptions";
+
+export default function DashboardPage() {
+  return (
+    <main className="px-4 py-12">
+      <div className="max-w-7xl mx-auto w-full flex flex-col gap-4">
+        <h1 className="text-2xl font-bold">Your Account</h1>
+        
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <CustomerCard />
+          <CustomerInvoices />
+          <CustomerPayments />
+          <CustomerSubscriptions />
+        </div>
+      </div>
+    </main>
+  );
+}
+```
+
+Each component is self-contained and handles its own data fetching:
+
+- **`<CustomerCard />`** - Displays and allows editing of customer information
+- **`<CustomerInvoices />`** - Shows a table of all invoices
+- **`<CustomerPayments />`** - Displays payment history with card details
+- **`<CustomerSubscriptions />`** - Lists all subscriptions with status
+
+</Step>
+
+<Step title="Test it out">
+
+Start your development server:
+
+```bash
+npm run dev
+```
+
+Navigate to the page where you added the components. If you've configured authentication correctly, you should see the customer data loaded from Stripe.
+
+<Note>
+  Make sure your user has a Stripe customer ID associated with their account, or you'll see empty states.
+</Note>
+
+</Step>
+
+</Steps>
+
+## How it works
+
+The Stripe UI Kit uses a simple architecture:
+
+1. **Client components** make requests to your API route
+2. **API route** authenticates the user and determines their customer ID
+3. **Server functions** call the Stripe API with your secret key
+4. **Data flows back** to the client and is cached by TanStack Query
+
+### Data flow example
+
+Here's how the `CustomerCard` component works:
+
+```tsx src/components/stripe-ui-kit/customer.tsx
+"use client";
+
+import { useQuery } from "@tanstack/react-query";
+
+export function CustomerCard() {
+  // Fetch customer data from your API
+  const { data, isLoading } = useQuery({
+    queryKey: ["customer"],
+    queryFn: async () => {
+      const res = await fetch("/api/stripe-ui-kit/customer");
+      if (!res.ok) throw new Error("Failed to fetch customer");
+      return res.json();
+    },
+  });
+
+  if (isLoading) return <div>Loading...</div>;
+
+  // Render customer data...
+}
+```
+
+The API route handles authentication and Stripe calls:
+
+```typescript src/app/api/stripe-ui-kit/[route]/route.ts
+export async function GET(req: NextRequest, context: { params: Promise<{ route: string }> }) {
+  const { route } = await context.params;
+  
+  // Authenticate and get customer ID
+  const customerId = await auth(req);
+  if (!customerId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  
+  // Call the appropriate handler
+  const result = await handlers[route].GET.fn(undefined, customerId);
+  return NextResponse.json(result);
+}
+```
 
 ## Next steps
 
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>
+- Customize the components to match your design system
+- Add error handling and loading states
+- Implement additional Stripe features like payment methods or billing
+- Set up webhooks to keep data in sync

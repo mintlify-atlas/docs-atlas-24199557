@@ -1,0 +1,190 @@
+---
+title: 'Customer Schema'
+description: 'Zod schema for validating Stripe customer data with address and contact information'
+---
+
+## Overview
+
+The `customerSchema` validates customer data from Stripe, including address details, name, email, and currency preferences.
+
+## Schema Definition
+
+```typescript
+import { z } from "zod";
+
+export const customerSchema = z.object({
+    address: z.object({
+        city: z.string().nullable(),
+        country: z.string().nullable(),
+        line1: z.string().nullable(),
+        line2: z.string().nullable(),
+        postal_code: z.string().nullable(),
+        state: z.string().nullable(),
+    }),
+    name: z.string().nullable(),
+    email: z.string().email().nullable(),
+    currency: z.string().toLowerCase(),
+});
+```
+
+## Inferred TypeScript Type
+
+```typescript
+type Customer = z.infer<typeof customerSchema>;
+
+// Resolves to:
+type Customer = {
+    address: {
+        city: string | null;
+        country: string | null;
+        line1: string | null;
+        line2: string | null;
+        postal_code: string | null;
+        state: string | null;
+    };
+    name: string | null;
+    email: string | null;
+    currency: string;
+}
+```
+
+## Fields
+
+<ResponseField name="address" type="object" required>
+  Customer's address information
+  
+  <Expandable title="address properties">
+    <ResponseField name="city" type="string | null">
+      City name
+    </ResponseField>
+    
+    <ResponseField name="country" type="string | null">
+      Country code (e.g., "US", "CA", "GB")
+    </ResponseField>
+    
+    <ResponseField name="line1" type="string | null">
+      First line of the address (street address)
+    </ResponseField>
+    
+    <ResponseField name="line2" type="string | null">
+      Second line of the address (apartment, suite, unit, etc.)
+    </ResponseField>
+    
+    <ResponseField name="postal_code" type="string | null">
+      ZIP or postal code
+    </ResponseField>
+    
+    <ResponseField name="state" type="string | null">
+      State, county, province, or region
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="name" type="string | null" required>
+  Customer's full name
+</ResponseField>
+
+<ResponseField name="email" type="string | null" required>
+  Customer's email address. When non-null, must be a valid email format
+</ResponseField>
+
+<ResponseField name="currency" type="string" required>
+  Three-letter ISO currency code in lowercase (e.g., "usd", "eur", "gbp")
+</ResponseField>
+
+## Usage Examples
+
+### Basic Validation
+
+```typescript
+import { customerSchema } from '@/lib/stripe-ui-types';
+
+const customerData = {
+  address: {
+    city: "San Francisco",
+    country: "US",
+    line1: "123 Market St",
+    line2: "Suite 400",
+    postal_code: "94102",
+    state: "CA"
+  },
+  name: "Jane Doe",
+  email: "jane@example.com",
+  currency: "USD"
+};
+
+const validated = customerSchema.parse(customerData);
+console.log(validated.currency); // "usd" (automatically lowercased)
+```
+
+### Safe Parsing with Error Handling
+
+```typescript
+const result = customerSchema.safeParse(customerData);
+
+if (result.success) {
+  console.log("Valid customer:", result.data);
+} else {
+  console.error("Validation errors:", result.error.issues);
+}
+```
+
+### Partial Customer Data
+
+```typescript
+const partialCustomer = {
+  address: {
+    city: null,
+    country: "US",
+    line1: "123 Main St",
+    line2: null,
+    postal_code: "10001",
+    state: "NY"
+  },
+  name: null,
+  email: null,
+  currency: "usd"
+};
+
+const validated = customerSchema.parse(partialCustomer); // Valid
+```
+
+### Type Inference in Components
+
+```typescript
+import { z } from 'zod';
+import { customerSchema } from '@/lib/stripe-ui-types';
+
+type Customer = z.infer<typeof customerSchema>;
+
+interface CustomerCardProps {
+  customer: Customer;
+}
+
+export function CustomerCard({ customer }: CustomerCardProps) {
+  return (
+    <div>
+      <h2>{customer.name ?? "Anonymous"}</h2>
+      <p>{customer.email ?? "No email"}</p>
+      <address>
+        {customer.address.line1}<br />
+        {customer.address.line2 && <>{customer.address.line2}<br /></>}
+        {customer.address.city}, {customer.address.state} {customer.address.postal_code}
+      </address>
+    </div>
+  );
+}
+```
+
+## Validation Rules
+
+- **address**: Required object with all nested fields nullable
+- **name**: Optional string (can be null)
+- **email**: Optional string (can be null), but must be valid email format when present
+- **currency**: Required string, automatically converted to lowercase
+
+## Related Schemas
+
+- [Invoice Schema](/api/invoice-schema) - References customer ID
+- [Subscription Schema](/api/subscription-schema) - References customer ID
+- [Charge Schema](/api/charge-schema) - Associated with customer payments
